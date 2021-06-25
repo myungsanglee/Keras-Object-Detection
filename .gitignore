@@ -1,0 +1,9 @@
+# ignore folder
+.idea/
+log_files/
+saved_models/
+tensorboard_logs/
+
+# ignore file
+# *.h5
+test.py
