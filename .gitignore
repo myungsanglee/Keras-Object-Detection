@@ -3,6 +3,7 @@
 log_files/
 saved_models/
 tensorboard_logs/
+__pycache__/
 
 # ignore file
 # *.h5
