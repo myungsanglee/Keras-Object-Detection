@@ -678,7 +678,7 @@ def get_tagged_img(img, out, prediction=True):
 
     width = img.shape[1]
     height = img.shape[0]
-    with open('/home/fssv2/myungsang/Datasets/voc_2007/voc.names', 'r') as f:
+    with open('/home/fssv2/myungsang/datasets/voc_2007/voc.names', 'r') as f:
         class_name_list = f.readlines()
     class_name_list = [x.strip() for x in class_name_list]
     for bbox in bboxes:

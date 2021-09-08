@@ -13,7 +13,6 @@ from utils import get_tagged_img
 ##################################
 # Generator
 # YOLO 포맷 형식의 데이터셋 제너레이터
-# TODO: 이미지 증식 코드 작성
 ##################################
 class YoloV1Generator(keras.utils.Sequence):
     def __init__(self, data_dir, input_shape, batch_size, S=7, B=2, C=20, augment=False, shuffle=False):
@@ -315,7 +314,7 @@ class YoloV1Generator2(keras.utils.Sequence):
 def test(img, label_path):
     width = img.shape[1]
     height = img.shape[0]
-    with open('/home/fssv2/myungsang/Datasets/voc_2007/voc.names', 'r') as f:
+    with open('/home/fssv2/myungsang/datasets/voc_2007/voc.names', 'r') as f:
         class_name_list = f.readlines()
     class_name_list = [x.strip() for x in class_name_list]
     with open(label_path, 'r') as label_file:
@@ -349,10 +348,9 @@ def test(img, label_path):
 
 
 if __name__ == "__main__":
-    data_dir = "/home/fssv2/myungsang/Datasets/voc_2012/yolo_format/train_val"
-    train_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/train"
-    val_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/val"
-    test_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/test"
+    train_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/train"
+    val_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/val"
+    test_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/test"
     input_shape = (448, 448, 3)
     batch_size = 1
 
