@@ -6,19 +6,15 @@ import os
 from glob import glob
 from datetime import datetime
 import time
-
-import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-
 import tensorflow as tf
 from tensorflow import keras
 from dataset import YoloV1Generator, YoloV1Generator2
-from model import yolov1
+from model import yolov1, mobilenet_v2_yolo_v1
 from loss import YoloV1Loss
 from metric import MeanAveragePrecision, MeanAveragePrecision2
-from utils import get_logger
+
 
 ######################################
 # Set GPU
@@ -56,17 +52,17 @@ C = 20
 input_shape = (448, 448, 3)
 output_shape = (S, S, C + (B * 5))
 
-lr = 0.001
+lr = 0.0001
 batch_size = 64
-training_epochs = 200
+training_epochs = 1000
 
-model_name = "yolo_v1"
+model_name = "mobilenet_v2_yolo_v1"
 
 # path variables
 fmt = "%Y-%m-%d %H:%M:%S"
-train_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/train"
-val_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/val"
-test_dir = "/home/fssv2/myungsang/Datasets/voc_2007/yolo_format/test"
+train_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/train"
+val_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/val"
+test_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/test"
 cur_time = datetime.now().strftime(fmt)
 cur_dir = os.getcwd()
 
@@ -75,18 +71,6 @@ os.makedirs(save_model_dir, exist_ok=True)
 
 tensorboard_dir = os.path.join(cur_dir, "tensorboard_logs", cur_time)
 os.makedirs(tensorboard_dir, exist_ok=True)
-
-log_dir = os.path.join(cur_dir, "log_files", cur_time)
-# os.makedirs(log_dir, exist_ok=True)
-
-
-# Get Logger
-# log_path = os.path.join(log_dir, "info.log")
-# logger = get_logger(model_name, log_path)
-# logger.info("YOLO v1 Training Log")
-# logger.info("S: {}, B: {}, C: {}".format(S, B, C))
-# logger.info("Input_Shape: {}, Output_Shape: {}".format(input_shape, output_shape))
-# logger.info("Learning_Rate: {}, Batch_Size: {}, Epoch: {}".format(lr, batch_size, training_epochs))
 
 
 ##################################
@@ -102,9 +86,9 @@ train_generator = YoloV1Generator2(train_dir,
 val_generator = YoloV1Generator2(val_dir,
                                  input_shape=input_shape,
                                  batch_size=batch_size,
-                                 drop_remainder=False,
+                                 drop_remainder=True,
                                  augment=False,
-                                 shuffle=False)
+                                 shuffle=True)
 
 test_generator = YoloV1Generator2(val_dir,
                                   input_shape=input_shape,
@@ -113,15 +97,12 @@ test_generator = YoloV1Generator2(val_dir,
                                   augment=False,
                                   shuffle=False)
 
-# logger.info("Number of Training Dataset:   {}".format(len(train_generator.img_path_array)))
-# logger.info("Number of Validation Dataset: {}".format(len(val_generator.img_path_array)))
-
 
 ##################################
 # YOLO v1 Model
 ##################################
 # model = yolov1(input_shape, output_shape)
-model = keras.models.load_model('./saved_models/2021-05-26 20:13:02/yolo_v1-00231.h5', compile=False)
+model = mobilenet_v2_yolo_v1(input_shape, output_shape)
 model.summary()
 
 
@@ -143,10 +124,10 @@ test_writer = tf.summary.create_file_writer(tensorboard_dir + '/test')
 ##################################
 reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                               factor=0.5,
-                                              patience=10,
+                                              patience=50,
                                               verbose=1,
                                               mode='min',
-                                              min_lr=0.0001)
+                                              min_lr=0.00001)
 
 save_model = keras.callbacks.ModelCheckpoint(filepath=save_model_dir + '/' + model_name + '_{epoch:05d}.h5',
                                              monitor='val_loss',
@@ -159,7 +140,7 @@ save_model = keras.callbacks.ModelCheckpoint(filepath=save_model_dir + '/' + mod
 tensorboard = keras.callbacks.TensorBoard(log_dir=tensorboard_dir, profile_batch=0)
 
 early_stop = keras.callbacks.EarlyStopping(monitor='val_loss',
-                                           patience=35,
+                                           patience=1000,
                                            verbose=1,
                                            mode='min')
 
@@ -188,14 +169,16 @@ class CustomCallback(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         current = logs[self.monitor]
-        if self.monitor_op(current, self.best):
-            print('\nEpoch {:05d}: {:s} improved from {:0.5f} to {:0.5f}, '
-                  'calculate mean average precision'.format(epoch + 1, self.monitor, self.best, current))
-            self._calculate_map(epoch=epoch)
-            self.best = current
-        elif (epoch + 1) % 10 == 0:
-            print('\nEpoch {:05d}: calculate mean average precision'.format(epoch + 1))
-            self._calculate_map(epoch=epoch)
+
+        if (epoch + 1) > 50:
+            if self.monitor_op(current, self.best):
+                print('\nEpoch {:05d}: {:s} improved from {:0.5f} to {:0.5f}, '
+                      'calculate mean average precision'.format(epoch + 1, self.monitor, self.best, current))
+                self._calculate_map(epoch=epoch)
+                self.best = current
+            elif (epoch + 1) % 10 == 0:
+                print('\nEpoch {:05d}: calculate mean average precision'.format(epoch + 1))
+                self._calculate_map(epoch=epoch)
 
     def _calculate_map(self, epoch=None):
         print('Calculating mean average precision. It takes sometime.')
@@ -219,7 +202,8 @@ custom_callback = CustomCallback(test_generator=val_generator,
                                  training=True,
                                  test_writer=valid_writer)
 
-callbacks = [save_model, tensorboard, custom_callback]
+callbacks = [save_model, reduce_lr, tensorboard, custom_callback]
+# callbacks = [save_model]
 
 ##################################
 # Train Model
@@ -243,7 +227,8 @@ best_model_path = model_list[-1]
 print('best_model_path: ', best_model_path)
 
 # Get best model
-best_model = yolov1(input_shape, output_shape)
+# best_model = yolov1(input_shape, output_shape)
+best_model = mobilenet_v2_yolo_v1(input_shape, output_shape)
 best_model.load_weights(best_model_path)
 
 best_model.compile(optimizer=optimizer, loss=yolo_loss)

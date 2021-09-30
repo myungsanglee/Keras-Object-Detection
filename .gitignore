@@ -1,10 +1,9 @@
 # ignore folder
 .idea/
-log_files/
 saved_models/
 tensorboard_logs/
 __pycache__/
 
 # ignore file
-# *.h5
+*.h5
 test.py

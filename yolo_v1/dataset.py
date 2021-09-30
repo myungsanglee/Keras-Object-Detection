@@ -257,14 +257,14 @@ class YoloV1Generator2(keras.utils.Sequence):
     def __augment_images_and_bboxes(self, images, bboxes):
         seq = iaa.Sequential(
             [
-                iaa.SomeOf((2, 8),  # Apply 1 to <max> given augmenters
+                iaa.SomeOf((2, 3),  # Apply 1 to <max> given augmenters
                            # iaa.SomeOf(1,  # Apply 1 of given augmenters
                            [
                                iaa.Identity(),  # no change
-                               iaa.Solarize(threshold=0),  # inverts all pixel values above a threshold
+                               # iaa.Solarize(threshold=0),  # inverts all pixel values above a threshold
                                iaa.Sharpen(),
-                               iaa.HistogramEqualization(),
-                               iaa.Posterize(nb_bits=(1, 8)),
+                               # iaa.HistogramEqualization(),
+                               # iaa.Posterize(nb_bits=(1, 8)),
                                iaa.GammaContrast(gamma=(0.5, 2.0)),
                                iaa.Rot90(k=(2, 3)),
                                iaa.MultiplyHueAndSaturation(),
@@ -371,7 +371,6 @@ if __name__ == "__main__":
         x_origin, y_origin = generator_2.__getitem__(idx)
         img_path = img_path_array[idx]
         label_path = img_path.replace('.jpg', '.txt')
-
 
         x_aug = cv2.cvtColor(x_aug[0], cv2.COLOR_RGB2BGR)
         x_origin = cv2.cvtColor(x_origin[0], cv2.COLOR_RGB2BGR)

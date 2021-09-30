@@ -38,7 +38,8 @@ def cnn_block(input_tensor, kernel_size, filters, strides, padding):
     x = keras.layers.ZeroPadding2D(padding=padding)(input_tensor)
     x = keras.layers.Conv2D(filters=filters, kernel_size=kernel_size, strides=strides)(x)
     x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.LeakyReLU(0.1)(x)
+    # x = keras.layers.LeakyReLU(0.1)(x)
+    x = keras.layers.ReLU()(x)
     return x
 
 
@@ -75,16 +76,49 @@ def yolov1(input_shape, output_shape, architecture=architecture_config):
 
     # Fully Connected Layer(head)
     x = keras.layers.Dense(units=4096)(x)
-    x = keras.layers.LeakyReLU(0.1)(x)
+    # x = keras.layers.LeakyReLU(0.1)(x)
+    x = keras.layers.ReLU()(x)
+    # output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
     x = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
     output_tensor = keras.layers.Reshape(target_shape=output_shape)(x)
 
     return keras.Model(input_tensor, output_tensor)
-    # return (input_tensor, output_tensor)
+
+
+def mobilenet_v2_yolo_v1(input_shape, output_shape):
+    # Input tensor
+    input_tensor = keras.layers.Input(input_shape)
+
+    # backbone
+    backbone = keras.applications.MobileNetV2(include_top=False,
+                                              weights='imagenet',
+                                              input_tensor=input_tensor,
+                                              pooling='avg')
+
+    # neck
+    # x = keras.layers.Flatten()(backbone.output)
+
+    # Fully Connected Layer(head)
+    x = keras.layers.Dense(units=4096)(backbone.output)
+    # x = keras.layers.LeakyReLU(0.1)(x)
+    x = keras.layers.ReLU()(x)
+    # output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+    x = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+    output_tensor = keras.layers.Reshape(target_shape=output_shape)(x)
+
+    return keras.Model(input_tensor, output_tensor)
 
 
 if __name__ == "__main__":
-    input_shape = (224, 224, 3)
+    input_shape = (448, 448, 3)
     output_shape = (7, 7, 30)
-    model = yolov1(input_shape, output_shape)
-    model.summary()
+    # model = yolov1(input_shape, output_shape)
+    model = mobilenet_v2_yolo_v1(input_shape, output_shape)
+    # model.summary()
+
+    # new_model = keras.Model(model.input, model.layers[-2].output)
+    # new_model.summary()
+
+    # input_tensor = keras.layers.Input(input_shape)
+    # backbone = keras.applications.MobileNetV2(include_top=False, weights='imagenet', input_tensor=input_tensor)
+    # backbone.summary()
