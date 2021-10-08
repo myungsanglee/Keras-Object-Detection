@@ -12,9 +12,9 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import backend as K
-from utils import non_max_suppression, get_all_bboxes, non_max_suppression_2
+from utils import non_max_suppression, get_all_bboxes, non_max_suppression_2, get_all_bboxes_numpy, non_max_suppression_numpy
 from dataset import YoloV1Generator2
-from model import yolov1, mobilenet_v2_yolo_v1
+from model import yolov1, mobilenet_v2_yolo_v1, test_model
 
 ######################################
 # Set GPU
@@ -56,7 +56,7 @@ batch_size = 1
 
 # path variables
 cur_dir = os.getcwd()
-save_model_dir = os.path.join(cur_dir, "saved_models/2021-09-29 18:25:45")
+save_model_dir = os.path.join(cur_dir, "saved_models/2021-10-01 18:16:10")
 train_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/train"
 val_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/val"
 test_dir = "/home/fssv2/myungsang/datasets/voc_2007/yolo_format/test"
@@ -66,9 +66,9 @@ obj_name_path = "/home/fssv2/myungsang/datasets/voc_2007/voc.names"
 ##################################
 # Get Dataset Generator
 ##################################
-jpg_data_list = glob(test_dir + "/*.jpg")
+jpg_data_list = glob(train_dir + "/*.jpg")
 
-test_generator = YoloV1Generator2(test_dir,
+test_generator = YoloV1Generator2(train_dir,
                                   input_shape=input_shape,
                                   batch_size=batch_size,
                                   drop_remainder=False,
@@ -94,14 +94,15 @@ print("Best Model Name: {}".format(best_model))
 # model = keras.models.load_model(best_model, compile=False)
 # model = yolov1(input_shape, output_shape)
 model = mobilenet_v2_yolo_v1(input_shape, output_shape)
+# model = test_model(input_shape, output_shape)
 model.load_weights(best_model)
 
 
 ##################################
 # Get bbox img function
 ##################################
-def get_bbox_img(img, bboxes, class_name_list):
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+def get_bbox_img(img_path, bboxes, class_name_list):
+    img = cv2.imread(img_path)
     width = img.shape[1]
     height = img.shape[0]
     for bbox in bboxes:
@@ -137,15 +138,24 @@ for idx in range(test_generator.__len__()):
     predictions = model(sample_x_true, training=False)
     print("Inference FPS: {:.1f}".format(1 / (time.time() - start_time)))
 
+    predictions_numpy = predictions.numpy()
+
     # get bboxes
     second_time = time.time()
+    predictions = tf.reshape(predictions, [-1, 7, 7, 30])
     pred_bboxes = get_all_bboxes(predictions)
-    # pred_bboxes = non_max_suppression(pred_bboxes[0], threshold=0.4, iou_threshold=0.5)
     pred_bboxes = non_max_suppression_2(pred_bboxes[0], threshold=0.4, iou_threshold=0.5)
     print("NMS FPS: {:.1f}".format(1 / (time.time() - second_time)))
 
+    # get bboxes numpy
+    second_time = time.time()
+    predictions_numpy = np.reshape(predictions_numpy, (-1, 7, 7, 30))
+    pred_bboxes_numpy = get_all_bboxes_numpy(predictions_numpy)
+    pred_bboxes_numpy = non_max_suppression_numpy(pred_bboxes_numpy[0], threshold=0.4, iou_threshold=0.5)
+    print("NMS Numpy FPS: {:.1f}".format(1 / (time.time() - second_time)))
+
     # Get bbox img
-    x_true_img = get_bbox_img(sample_x_true[0], pred_bboxes, obj_name_list)
+    x_true_img = get_bbox_img(jpg_data_list[idx], pred_bboxes, obj_name_list)
     print("FPS: {:.1f}".format(1/(time.time() - start_time)))
 
     # Show

@@ -44,6 +44,39 @@ def intersection_over_union(bbox_true, bbox_pred):
     return inter_area / (box1_area + box2_area - inter_area + 1e-6) # (batch, S, S, 1)
 
 
+def intersection_over_union_numpy(bbox_true, bbox_pred):
+    """
+    Calculates intersection-over-union
+
+    Parameters:
+        bbox_true (Numpy Array): true bbox       (batch, S, S, 4(x,y,w,h))
+        bbox_pred (Numpy Array): prediction bbox (batch, S, S, 4(x,y,w,h)
+
+    Returns:
+        Numpy Array: Numpy Array of iou (batch, S, S, 1)
+    """
+
+    box1_xmin = (bbox_true[..., 0:1] - bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymin = (bbox_true[..., 1:2] - bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
+    box1_xmax = (bbox_true[..., 0:1] + bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymax = (bbox_true[..., 1:2] + bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
+
+    box2_xmin = (bbox_pred[..., 0:1] - bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymin = (bbox_pred[..., 1:2] - bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
+    box2_xmax = (bbox_pred[..., 0:1] + bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymax = (bbox_pred[..., 1:2] + bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
+
+    inter_xmin = np.maximum(box1_xmin, box2_xmin) # (batch, S, S, 1)
+    inter_ymin = np.maximum(box1_ymin, box2_ymin) # (batch, S, S, 1)
+    inter_xmax = np.minimum(box1_xmax, box2_xmax) # (batch, S, S, 1)
+    inter_ymax = np.minimum(box1_ymax, box2_ymax) # (batch, S, S, 1)
+
+    inter_area = np.clip((inter_xmax - inter_xmin), 0, 1) * np.clip((inter_ymax - inter_ymin), 0, 1) # (batch, S, S, 1)
+    box1_area = np.abs((box1_xmax - box1_xmin) * (box1_ymax - box1_ymin)) # (batch, S, S, 1)
+    box2_area = np.abs((box2_xmax - box2_xmin) * (box2_ymax - box2_ymin)) # (batch, S, S, 1)
+
+    return inter_area / (box1_area + box2_area - inter_area + 1e-6) # (batch, S, S, 1)
+
 @tf.function
 def get_all_bboxes(out, S=7, C=20):
     """
@@ -105,6 +138,71 @@ def get_all_bboxes(out, S=7, C=20):
 
     # Get all bboxes
     converted_out = tf.reshape(converted_out, shape=(-1, S * S, 6)) # (batch, S*S, 6)
+
+    return converted_out # (batch, S*S, 6)
+
+
+def get_all_bboxes_numpy(predictions, S=7, C=20):
+    """
+    Converts bounding boxes output from Yolo with
+    an image split size of S into entire image ratios
+    rather than relative to cell ratios.
+
+    Parameters:
+        predictions (Numpy Array): predictions or true_labels (batch, S, S, (B*5)+C)
+
+    Returns:
+        Numpy Array: numpy array of bboxes (batch, S*S, 6(class_index, confidence, x, y, w, h))
+    """
+
+    bbox1_start_index = C + 1
+    bbox1_confidence_index = C
+    bbox2_start_index = C + 1 + 5
+    bbox2_confidence_index = C + 5
+
+    bboxes1 = predictions[..., bbox1_start_index:bbox1_start_index + 4]  # (batch, S, S, 4)
+    bboxes2 = predictions[..., bbox2_start_index:bbox2_start_index + 4]  # (batch, S, S, 4)
+    confidences = np.concatenate((predictions[..., bbox1_confidence_index:bbox1_confidence_index + 1],
+                                  predictions[..., bbox2_confidence_index:bbox2_confidence_index + 1]),
+                                 axis=-1)  # (batch, S, S, 2)
+
+    # Get best box index
+    best_box_index = np.argmax(confidences, axis=-1)  # (batch, S, S)
+    best_box_index = np.expand_dims(best_box_index, axis=-1)  # (batch, S, S, 1)
+    best_box_index = best_box_index.astype(np.float32)
+
+    # Get best boxes
+    best_boxes = (1 - best_box_index) * bboxes1 + best_box_index * bboxes2  # (batch, S, S, 4)
+
+    # Get cell indexes array
+    base_arr = np.arange(S).reshape((1, -1)).repeat(S, axis=0)
+    x_cell_indexes = np.expand_dims(base_arr, axis=-1)  # (S, S, 1)
+
+    y_cell_indexes = np.transpose(base_arr)
+    y_cell_indexes = np.expand_dims(y_cell_indexes, axis=-1)  # (S, S, 1)
+
+    # Convert x, y ratios to YOLO ratios
+    x = 1 / S * (best_boxes[..., :1] + x_cell_indexes)  # (batch, S, S, 1)
+    y = 1 / S * (best_boxes[..., 1:2] + y_cell_indexes)  # (batch, S, S, 1)
+
+    # Get class indexes
+    class_indexes = np.argmax(predictions[..., :C], axis=-1)  # (batch, S, S)
+    class_indexes = np.expand_dims(class_indexes, axis=-1)  # (batch, S, S, 1)
+    class_indexes = class_indexes.astype(np.float32)
+
+    # Get best confidences
+    best_confidences = (1 - best_box_index) * predictions[..., bbox1_confidence_index:bbox1_confidence_index + 1] + \
+                       best_box_index * predictions[...,
+                                        bbox2_confidence_index:bbox2_confidence_index + 1]  # (batch, S, S, 1)
+
+    # Get converted bboxes
+    converted_bboxes = np.concatenate((x, y, best_boxes[..., 2:4]), axis=-1)  # (batch, S, S, 4)
+
+    # Concatenate result
+    converted_out = np.concatenate((class_indexes, best_confidences, converted_bboxes), axis=-1)  # (batch, S, S, 6)
+
+    # Get all bboxes
+    converted_out = np.reshape(converted_out, (-1, S * S, 6))  # (batch, S*S, 6)
 
     return converted_out # (batch, S*S, 6)
 
@@ -231,6 +329,43 @@ def non_max_suppression_2(bboxes, iou_threshold=0.5, threshold=0.4):
         bboxes_after_nms = bboxes_after_nms.write(bboxes_after_nms.size(), chosen_box)
 
     return bboxes_after_nms.stack()
+
+
+def non_max_suppression_numpy(bboxes, iou_threshold=0.5, threshold=0.4):
+    """
+    Does Non Max Suppression given bboxes
+
+    Parameters:
+        bboxes (Numpy Array): numpy array of all bboxes with each grid (S*S, 6)
+        specified as [class_idx, confidence_score, x, y, w, h]
+        iou_threshold (float): threshold where predicted bboxes is correct
+        threshold (float): threshold to remove predicted bboxes
+
+    Returns:
+        Numpy Array: bboxes after performing NMS given a specific IoU threshold (None, 6)
+    """
+
+    # bboxes smaller than the threshold are removed
+    bboxes_new = np.take(bboxes, np.where(bboxes[..., 1] > threshold)[0], axis=0)
+
+    # sort descending by confidence score
+    bboxes_new = np.take(bboxes_new, np.argsort(-bboxes_new[..., 1]), axis=0)
+
+    # get bboxes after nms
+    bboxes_after_nms = np.empty(shape=(0, 6))
+
+    while not(np.less(bboxes_new.shape[0], 1)):
+        chosen_box = np.expand_dims(bboxes_new[0], axis=0)
+        tmp_array = np.empty(shape=(0, 6))
+        for idx in range(1, bboxes_new.shape[0]):
+            bbox = np.expand_dims(bboxes_new[idx], axis=0)
+            if bbox[0][0] != chosen_box[0][0] or intersection_over_union_numpy(chosen_box[..., 2:], bbox[..., 2:]) < iou_threshold:
+                tmp_array = np.append(tmp_array, bbox, axis=0)
+        bboxes_new = tmp_array
+
+        bboxes_after_nms = np.append(bboxes_after_nms, chosen_box, axis=0)
+
+    return bboxes_after_nms
 
 
 @tf.function(input_signature=[tf.TensorSpec(shape=[None, 7]), tf.TensorSpec(shape=[None, 7])])
@@ -702,6 +837,74 @@ def get_tagged_img(img, out, prediction=True):
     return img
 
 
+def get_result_of_yolo_v1_inference(predictions, S=7, B=2, C=20):
+    """
+    Postprocessing of YOLO V1 predictions
+
+    Parameters:
+        predictions (Numpy): predictions of YOLO V1 (batch, S * S * (B*5)+C)
+
+    Returns:
+        Numpy: Numpy Array of bboxes (batch, 6(class_index, confidence, x, y, w, h))
+    """
+
+    # Reshape of predictions
+    predictions = np.reshape(predictions, (-1, S, S, (B*5)+C))
+
+    #############################
+    # Get All Bounding Boxes
+    #############################
+    bbox1_start_index = C + 1
+    bbox1_confidence_index = C
+    bbox2_start_index = C + 1 + 5
+    bbox2_confidence_index = C + 5
+
+    bboxes1 = predictions[..., bbox1_start_index:bbox1_start_index + 4]  # (batch, S, S, 4)
+    bboxes2 = predictions[..., bbox2_start_index:bbox2_start_index + 4]  # (batch, S, S, 4)
+    confidences = np.concatenate((predictions[..., bbox1_confidence_index:bbox1_confidence_index + 1],
+                                  predictions[..., bbox2_confidence_index:bbox2_confidence_index + 1]),
+                                 axis=-1)  # (batch, S, S, 2)
+
+    # Get best box index
+    best_box_index = np.argmax(confidences, axis=-1)  # (batch, S, S)
+    best_box_index = np.expand_dims(best_box_index, axis=-1)  # (batch, S, S, 1)
+    best_box_index = best_box_index.astype(np.float32)
+
+    # Get best boxes
+    best_boxes = (1 - best_box_index) * bboxes1 + best_box_index * bboxes2  # (batch, S, S, 4)
+
+    # Get cell indexes array
+    base_arr = np.arange(S).reshape((1, -1)).repeat(S, axis=0)
+    x_cell_indexes = np.expand_dims(base_arr, axis=-1)  # (S, S, 1)
+
+    y_cell_indexes = np.transpose(base_arr)
+    y_cell_indexes = np.expand_dims(y_cell_indexes, axis=-1)  # (S, S, 1)
+
+    # Convert x, y ratios to YOLO ratios
+    x = 1 / S * (best_boxes[..., :1] + x_cell_indexes)  # (batch, S, S, 1)
+    y = 1 / S * (best_boxes[..., 1:2] + y_cell_indexes)  # (batch, S, S, 1)
+
+    # Get class indexes
+    class_indexes = np.argmax(predictions[..., :C], axis=-1)  # (batch, S, S)
+    class_indexes = np.expand_dims(class_indexes, axis=-1)  # (batch, S, S, 1)
+    class_indexes = class_indexes.astype(np.float32)
+
+    # Get best confidences
+    best_confidences = (1 - best_box_index) * predictions[..., bbox1_confidence_index:bbox1_confidence_index + 1] + \
+                       best_box_index * predictions[..., bbox2_confidence_index:bbox2_confidence_index + 1]  # (batch, S, S, 1)
+
+    # Get converted bboxes
+    converted_bboxes = np.concatenate((x, y, best_boxes[..., 2:4]), axis=-1)  # (batch, S, S, 4)
+
+    # Concatenate result
+    converted_out = np.concatenate((class_indexes, best_confidences, converted_bboxes), axis=-1)  # (batch, S, S, 6)
+
+    # Get all bboxes
+    converted_out = np.reshape(converted_out, (-1, S * S, 6))  # (batch, S*S, 6)
+
+    print(converted_out[1:, :1, :])
+
+
 if __name__ == "__main__":
     y_true = np.zeros((2, 7, 7, 30))
     y_true[:, 0, 0, 2] = 1  # class
@@ -737,59 +940,72 @@ if __name__ == "__main__":
     y_pred[:, 5, 0, 21:25] = (0.49, 0.49, 0.09, 0.09)
     print("y_pred:\n{}".format(y_pred))
 
+    test_y_pred = np.reshape(y_pred, (2, 1470))
+    np_y_true = y_true
+    np_y_pred = y_pred
+
     y_true = tf.cast(y_true, dtype=tf.float32)
     y_pred = tf.cast(y_pred, dtype=tf.float32)
 
     iou_tensor = intersection_over_union(y_true[..., 21:25], y_pred[..., 21:25])
     print(iou_tensor)
+    a = intersection_over_union_numpy(np_y_true[..., 21:25], np_y_pred[..., 21:25])
+    print(a)
 
     true_bboxes = get_all_bboxes(y_true)
     pred_bboxes = get_all_bboxes(y_pred)
-    print(true_bboxes[:1, :1, :])
-    print(true_bboxes[1:, :1, :])
+    # print(true_bboxes[1:, :1, :])
+    print(pred_bboxes[1:, :1, :])
 
-    a = time.time()
-    nms_bboxes = non_max_suppression(pred_bboxes[0], iou_threshold=0.5, threshold=0.4)
-    print('nmx_bboxes: ', nms_bboxes, '\ntaken_time: ', time.time() - a)
+    pred_bboxes_numpy = get_all_bboxes_numpy(np_y_pred)
+    print(pred_bboxes_numpy[1:, :1, :])
+
+    # a = time.time()
+    # nms_bboxes = non_max_suppression(pred_bboxes[0], iou_threshold=0.5, threshold=0.4)
+    # print('nmx_bboxes: ', nms_bboxes, '\ntaken_time: ', time.time() - a)
     a = time.time()
     nms_bboxes_2 = non_max_suppression_2(pred_bboxes[0], iou_threshold=0.5, threshold=0.4)
     print('nmx_bboxes_2: ', nms_bboxes_2, '\ntaken_time: ', time.time() - a)
 
-    all_pred_bboxes = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-    all_pred_bboxes = all_pred_bboxes.write(all_pred_bboxes.size(), tf.concat([tf.constant([0], dtype=tf.float32), nms_bboxes[0]], axis=0))
-    print(all_pred_bboxes.stack())
+    a = time.time()
+    nms_bboxes_numpy = non_max_suppression_numpy(pred_bboxes_numpy[0])
+    print('nmx_bboxes_numpy: ', nms_bboxes_numpy, '\ntaken_time: ', time.time() - a)
 
-    true_bboxes = non_max_suppression(true_bboxes[0], iou_threshold=0.5, threshold=0.4)
-    print(true_bboxes)
-
-    all_true_bboxes = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-    all_true_bboxes = all_true_bboxes.write(all_true_bboxes.size(), tf.concat([tf.constant([0], dtype=tf.float32), true_bboxes[0]], axis=0))
-    print(all_true_bboxes.stack())
-
-    tmp_true_bboxes = tf.constant([[1., 2., 1., 0.2, 0.5, 0.1, 0.1],
-                                   [1., 2., 1., 0.3, 0.3, 0.1, 0.1],
-                                   [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
-                                   [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
-                                   [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
-                                   [1., 2., 1., 0.4, 0.4, 0.1, 0.1]], dtype=tf.float32)
-
-    tmp_pred_bboxes = tf.constant([[1., 2., 0.5, 0.2, 0.5, 0.1, 0.1],
-                                   [1., 2., 0.6, 0.3, 0.3, 0.1, 0.1],
-                                   [1., 2., 0.7, 0.8, 0.8, 0.1, 0.1],
-                                   [1., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
-                                   [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
-                                   [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
-                                   [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
-                                   [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
-                                   [1., 2., 0.9, 0.8, 0.8, 0.1, 0.1],
-                                   [1., 2., 0.95, 0.4, 0.4, 0.1, 0.1]], dtype=tf.float32)
-
-    start_time = time.time()
-    map = mean_average_precision(tmp_true_bboxes, tmp_pred_bboxes)
-    print(map)
-    print('Taken_Time: {:.8f}'.format(time.time() - start_time))
-
-    start_time = time.time()
-    map = mean_average_precision_2(tmp_true_bboxes, tmp_pred_bboxes)
-    print(map)
-    print('Taken_Time: {:.8f}'.format(time.time() - start_time))
+    # all_pred_bboxes = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+    # all_pred_bboxes = all_pred_bboxes.write(all_pred_bboxes.size(), tf.concat([tf.constant([0], dtype=tf.float32), nms_bboxes[0]], axis=0))
+    # print(all_pred_bboxes.stack())
+    #
+    # true_bboxes = non_max_suppression(true_bboxes[0], iou_threshold=0.5, threshold=0.4)
+    # print(true_bboxes)
+    #
+    # all_true_bboxes = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+    # all_true_bboxes = all_true_bboxes.write(all_true_bboxes.size(), tf.concat([tf.constant([0], dtype=tf.float32), true_bboxes[0]], axis=0))
+    # print(all_true_bboxes.stack())
+    #
+    # tmp_true_bboxes = tf.constant([[1., 2., 1., 0.2, 0.5, 0.1, 0.1],
+    #                                [1., 2., 1., 0.3, 0.3, 0.1, 0.1],
+    #                                [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
+    #                                [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
+    #                                [0., 2., 1., 0.3, 0.3, 0.1, 0.1],
+    #                                [1., 2., 1., 0.4, 0.4, 0.1, 0.1]], dtype=tf.float32)
+    #
+    # tmp_pred_bboxes = tf.constant([[1., 2., 0.5, 0.2, 0.5, 0.1, 0.1],
+    #                                [1., 2., 0.6, 0.3, 0.3, 0.1, 0.1],
+    #                                [1., 2., 0.7, 0.8, 0.8, 0.1, 0.1],
+    #                                [1., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
+    #                                [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
+    #                                [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
+    #                                [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
+    #                                [0., 2., 0.8, 0.8, 0.8, 0.1, 0.1],
+    #                                [1., 2., 0.9, 0.8, 0.8, 0.1, 0.1],
+    #                                [1., 2., 0.95, 0.4, 0.4, 0.1, 0.1]], dtype=tf.float32)
+    #
+    # start_time = time.time()
+    # map = mean_average_precision(tmp_true_bboxes, tmp_pred_bboxes)
+    # print(map)
+    # print('Taken_Time: {:.8f}'.format(time.time() - start_time))
+    #
+    # start_time = time.time()
+    # map = mean_average_precision_2(tmp_true_bboxes, tmp_pred_bboxes)
+    # print(map)
+    # print('Taken_Time: {:.8f}'.format(time.time() - start_time))

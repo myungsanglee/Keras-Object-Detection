@@ -14,6 +14,7 @@ from dataset import YoloV1Generator, YoloV1Generator2
 from model import yolov1, mobilenet_v2_yolo_v1
 from loss import YoloV1Loss
 from metric import MeanAveragePrecision, MeanAveragePrecision2
+from cosine_annealing import CosineAnnealingScheduler
 
 
 ######################################
@@ -52,9 +53,8 @@ C = 20
 input_shape = (448, 448, 3)
 output_shape = (S, S, C + (B * 5))
 
-lr = 0.0001
 batch_size = 64
-training_epochs = 1000
+training_epochs = 10000
 
 model_name = "mobilenet_v2_yolo_v1"
 
@@ -86,11 +86,11 @@ train_generator = YoloV1Generator2(train_dir,
 val_generator = YoloV1Generator2(val_dir,
                                  input_shape=input_shape,
                                  batch_size=batch_size,
-                                 drop_remainder=True,
+                                 drop_remainder=False,
                                  augment=False,
-                                 shuffle=True)
+                                 shuffle=False)
 
-test_generator = YoloV1Generator2(val_dir,
+test_generator = YoloV1Generator2(test_dir,
                                   input_shape=input_shape,
                                   batch_size=batch_size,
                                   drop_remainder=False,
@@ -110,7 +110,7 @@ model.summary()
 # Loss & optimizer
 ##################################
 yolo_loss = YoloV1Loss()
-optimizer = keras.optimizers.Adam(learning_rate=lr)
+optimizer = keras.optimizers.Adam(learning_rate=0.001)
 
 ##################################
 # Tensorboard Writer
@@ -122,6 +122,20 @@ test_writer = tf.summary.create_file_writer(tensorboard_dir + '/test')
 ##################################
 # Callbacks
 ##################################
+def lr_schedule(epoch, lr): # epoch는 0부터 시작
+    if epoch >=0 and epoch < 75 :
+        lr = 0.001 + 0.009 * (float(epoch)/(75.0)) # 가중치를 0.001 ~ 0.0075로 변경
+        return lr
+    elif epoch >= 75 and epoch < 105 :
+        lr = 0.001
+        return lr
+    else :
+        lr = 0.0001
+        return lr
+
+
+lr_scheduler = CosineAnnealingScheduler(0.001, verbose=1)
+
 reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                               factor=0.5,
                                               patience=50,
@@ -130,6 +144,7 @@ reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                               min_lr=0.00001)
 
 save_model = keras.callbacks.ModelCheckpoint(filepath=save_model_dir + '/' + model_name + '_{epoch:05d}.h5',
+                                             # filepath=save_model_dir + '/' + model_name + '_{epoch:05d}.h5',
                                              monitor='val_loss',
                                              verbose=1,
                                              save_best_only=True,
@@ -170,7 +185,7 @@ class CustomCallback(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         current = logs[self.monitor]
 
-        if (epoch + 1) > 50:
+        if (epoch + 1) > 100:
             if self.monitor_op(current, self.best):
                 print('\nEpoch {:05d}: {:s} improved from {:0.5f} to {:0.5f}, '
                       'calculate mean average precision'.format(epoch + 1, self.monitor, self.best, current))
@@ -186,6 +201,7 @@ class CustomCallback(keras.callbacks.Callback):
         for idx in tqdm(range(self.test_generator.__len__()), desc='updating...'):
             batch_x, batch_y = self.test_generator.__getitem__(idx)
             predictions = self.model(batch_x, training=False)
+            predictions = tf.reshape(predictions, [-1, 7, 7, 30])
             self.map_metric.update_state(batch_y, predictions)
 
         map = self.map_metric.result()
@@ -202,7 +218,7 @@ custom_callback = CustomCallback(test_generator=val_generator,
                                  training=True,
                                  test_writer=valid_writer)
 
-callbacks = [save_model, reduce_lr, tensorboard, custom_callback]
+callbacks = [save_model, lr_scheduler, tensorboard, custom_callback]
 # callbacks = [save_model]
 
 ##################################

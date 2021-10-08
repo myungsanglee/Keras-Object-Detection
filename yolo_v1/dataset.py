@@ -212,7 +212,9 @@ class YoloV1Generator2(keras.utils.Sequence):
             ymax = ia_bbox.y2
 
             x = ((xmin + xmax) / 2.) / self.input_shape[0]
+            if x >= 1.: continue
             y = ((ymin + ymax) / 2.) / self.input_shape[1]
+            if y >= 1.: continue
             w = (xmax - xmin) / self.input_shape[0]
             h = (ymax - ymin) / self.input_shape[1]
 
@@ -257,18 +259,34 @@ class YoloV1Generator2(keras.utils.Sequence):
     def __augment_images_and_bboxes(self, images, bboxes):
         seq = iaa.Sequential(
             [
-                iaa.SomeOf((2, 3),  # Apply 1 to <max> given augmenters
+                iaa.SomeOf((0, 7),  # Apply 1 to <max> given augmenters
                            # iaa.SomeOf(1,  # Apply 1 of given augmenters
                            [
                                iaa.Identity(),  # no change
-                               # iaa.Solarize(threshold=0),  # inverts all pixel values above a threshold
+
+                               # imgaug.augmenters.convolutional
                                iaa.Sharpen(),
+
+                               # imgaug.augmenters.flip
+                               iaa.Fliplr(), # Vertical
+                               iaa.Flipud(0.5), # Horizontal
+
+                               # imgaug.aumenters.color
+                               iaa.MultiplyBrightness((0.5, 1.5)),
+                               iaa.MultiplySaturation((0.5, 1.5)),
+                               iaa.MultiplyHue((0.5, 1.5))
+
+                               # imgaug.augmenters.geometric
+                               # iaa.ScaleX((1.0, 1.2)),
+                               # iaa.ScaleY((1.0, 1.2)),
+                               # iaa.TranslateX(percent=(-0.2, 0.2)),
+                               # iaa.TranslateY(percent=(-0.2, 0.2)),
+
+                               # iaa.Solarize(threshold=0),  # inverts all pixel values above a threshold
                                # iaa.HistogramEqualization(),
                                # iaa.Posterize(nb_bits=(1, 8)),
-                               iaa.GammaContrast(gamma=(0.5, 2.0)),
-                               iaa.Rot90(k=(2, 3)),
-                               iaa.MultiplyHueAndSaturation(),
-                               iaa.MultiplyAndAddToBrightness()
+                               # iaa.GammaContrast(gamma=(0.5, 2.0)),
+                               # iaa.Rot90(k=(2, 3)),
                            ]
                            )
             ]

@@ -22,6 +22,9 @@ def yolo_loss(y_true, y_pred, C=20):
     bbox2_start_index = C + 1 + 5
     bbox2_confidence_index = C + 5
 
+    # predictions are shaped (BATCH_SIZE, S*S(C+B*5) when inputted
+    y_pred = tf.reshape(y_pred, [-1, 7, 7, 30])
+
     # Calculate IoU for the two pred bbox with true bbox
     iou_b1 = intersection_over_union(y_true[..., bbox1_start_index:bbox1_start_index+4],
                                      y_pred[..., bbox1_start_index:bbox1_start_index+4]) # (batch, S, S, 1)
@@ -109,6 +112,9 @@ class YoloV1Loss(tf.keras.losses.Loss):
         self.bbox2_confidence_index = c + 5
 
     def call(self, y_true, y_pred):
+        # predictions are shaped (BATCH_SIZE, S*S(C+B*5) when inputted
+        y_pred = tf.reshape(y_pred, [-1, 7, 7, 30])
+
         # Calculate IoU for the two pred bbox with true bbox
         iou_b1 = intersection_over_union(y_true[..., self.bbox1_start_index:self.bbox1_start_index + 4],
                                          y_pred[..., self.bbox1_start_index:self.bbox1_start_index + 4])  # (batch, S, S, 1)

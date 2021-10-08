@@ -1,7 +1,28 @@
 from __future__ import absolute_import
 
+import os
 import tensorflow as tf
 from tensorflow import keras
+
+######################################
+# Set GPU
+######################################
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+
+
+######################################
+# Set GPU Memory
+######################################
+gpus = tf.config.experimental.list_physical_devices('GPU')
+print(gpus)
+# if gpus:
+#   try:
+#     tf.config.experimental.set_virtual_device_configuration(
+#         gpus[0],
+#         [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=10240)])
+#   except RuntimeError as e:
+#     print(e)
 
 ##################################
 # YOLO v1 Model
@@ -91,30 +112,114 @@ def mobilenet_v2_yolo_v1(input_shape, output_shape):
 
     # backbone
     backbone = keras.applications.MobileNetV2(include_top=False,
+                                              weights=None,
+                                              input_tensor=input_tensor)
+
+    # YOLO V1 Head
+    # Conv Layers
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(backbone.output)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    # Fully Conn Layers
+    x = keras.layers.Flatten()(x)
+
+    x = keras.layers.Dense(units=4096)(x)
+
+    x = keras.layers.Dropout(0.5)(x)
+
+    output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+    return keras.Model(input_tensor, output_tensor)
+
+
+def test_model(input_shape, output_shape):
+    # Input tensor
+    input_tensor = keras.layers.Input(input_shape)
+
+    # backbone
+    backbone = keras.applications.MobileNetV2(include_top=False,
                                               weights='imagenet',
                                               input_tensor=input_tensor,
                                               pooling='avg')
 
-    # neck
-    # x = keras.layers.Flatten()(backbone.output)
-
     # Fully Connected Layer(head)
     x = keras.layers.Dense(units=4096)(backbone.output)
-    # x = keras.layers.LeakyReLU(0.1)(x)
     x = keras.layers.ReLU()(x)
-    # output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
     x = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
     output_tensor = keras.layers.Reshape(target_shape=output_shape)(x)
 
     return keras.Model(input_tensor, output_tensor)
 
 
+def vgg16_yolo_v1(input_shape, output_shape):
+    # Input tensor
+    input_tensor = keras.layers.Input(input_shape)
+
+    # backbone
+    backbone = keras.applications.VGG16(include_top=False,
+                                        weights='imagenet',
+                                        input_tensor=input_tensor)
+
+    # YOLO V1 Head
+    # Conv Layers
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(backbone.output)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    x = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.ReLU()(x)
+
+    # x = keras.layers.ZeroPadding2D()(x)
+    # x = keras.layers.LocallyConnected2D(filters=256, kernel_size=(3, 3), strides=(1, 1), padding='valid')(x)
+    # x = keras.layers.Conv2D(filters=256, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    # x = keras.layers.BatchNormalization()(x)
+    # x = keras.layers.ReLU()(x)
+
+    # Fully Conn Layers
+    x = keras.layers.Flatten()(x)
+
+    x = keras.layers.Dense(units=512)(x)
+    x = keras.layers.Dense(units=1024)(x)
+
+    x = keras.layers.Dropout(0.5)(x)
+
+    output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+    return keras.Model(input_tensor, output_tensor)
+
 if __name__ == "__main__":
     input_shape = (448, 448, 3)
     output_shape = (7, 7, 30)
     # model = yolov1(input_shape, output_shape)
     model = mobilenet_v2_yolo_v1(input_shape, output_shape)
-    # model.summary()
+    # model = vgg16_yolo_v1(input_shape, output_shape)
+    model.summary()
+    # model.save("test.h5")
+
+    for layer in model.layers:
+        print(layer.trainable)
 
     # new_model = keras.Model(model.input, model.layers[-2].output)
     # new_model.summary()
