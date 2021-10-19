@@ -54,9 +54,9 @@ input_shape = (448, 448, 3)
 output_shape = (S, S, C + (B * 5))
 
 batch_size = 64
-training_epochs = 10000
+training_epochs = 1000
 
-model_name = "mobilenet_v2_yolo_v1"
+model_name = "yolo_v1"
 
 # path variables
 fmt = "%Y-%m-%d %H:%M:%S"
@@ -101,8 +101,8 @@ test_generator = YoloV1Generator2(test_dir,
 ##################################
 # YOLO v1 Model
 ##################################
-# model = yolov1(input_shape, output_shape)
-model = mobilenet_v2_yolo_v1(input_shape, output_shape)
+model = yolov1(input_shape, output_shape)
+# model = mobilenet_v2_yolo_v1(input_shape, output_shape)
 model.summary()
 
 
@@ -110,7 +110,8 @@ model.summary()
 # Loss & optimizer
 ##################################
 yolo_loss = YoloV1Loss()
-optimizer = keras.optimizers.Adam(learning_rate=0.001)
+# optimizer = keras.optimizers.Adam(learning_rate=0.001)
+optimizer = keras.optimizers.Nadam(learning_rate=0.001)
 
 ##################################
 # Tensorboard Writer
@@ -134,7 +135,9 @@ def lr_schedule(epoch, lr): # epoch는 0부터 시작
         return lr
 
 
-lr_scheduler = CosineAnnealingScheduler(0.001, verbose=1)
+# lr_scheduler = CosineAnnealingScheduler(0.001, verbose=1)
+lr_decay_fn = (keras.experimental.CosineDecayRestarts(initial_learning_rate=0.001, first_decay_steps=100))
+lr_scheduler = keras.callbacks.LearningRateScheduler(lr_decay_fn)
 
 reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                               factor=0.5,
@@ -243,8 +246,8 @@ best_model_path = model_list[-1]
 print('best_model_path: ', best_model_path)
 
 # Get best model
-# best_model = yolov1(input_shape, output_shape)
-best_model = mobilenet_v2_yolo_v1(input_shape, output_shape)
+best_model = yolov1(input_shape, output_shape)
+# best_model = mobilenet_v2_yolo_v1(input_shape, output_shape)
 best_model.load_weights(best_model_path)
 
 best_model.compile(optimizer=optimizer, loss=yolo_loss)

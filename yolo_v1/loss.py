@@ -115,6 +115,18 @@ class YoloV1Loss(tf.keras.losses.Loss):
         # predictions are shaped (BATCH_SIZE, S*S(C+B*5) when inputted
         y_pred = tf.reshape(y_pred, [-1, 7, 7, 30])
 
+        # # Add Activation Functions
+        # # Softmax for class
+        # class_pred = y_pred[..., :self.C]
+        # class_pred = tf.keras.activations.softmax(class_pred)
+        #
+        # # Sigmoid for confidence and bbox
+        # conf_bbox_pred = y_pred[..., self.C:]
+        # conf_bbox_pred = tf.keras.activations.sigmoid(conf_bbox_pred)
+        #
+        # # Concat
+        # y_pred = tf.concat([class_pred, conf_bbox_pred], axis=-1)
+
         # Calculate IoU for the two pred bbox with true bbox
         iou_b1 = intersection_over_union(y_true[..., self.bbox1_start_index:self.bbox1_start_index + 4],
                                          y_pred[..., self.bbox1_start_index:self.bbox1_start_index + 4])  # (batch, S, S, 1)

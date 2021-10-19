@@ -1,0 +1,115 @@
+<2021-10-13 09:45:47>
+yolov1 모델 훈련 1st
+[fully connected layer 형태는 다음과 같다]
+x = keras.layers.Flatten()(x)
+x = keras.layers.Dense(units=4096)(x)
+x = keras.layers.BatchNormalization()(x)
+x = keras.layers.ReLU()(x)
+output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+[Loss 함수]
+# # Add Activation Functions
+# # Softmax for class
+# class_pred = y_pred[..., :self.C]
+# class_pred = tf.keras.activations.softmax(class_pred)
+#
+# # Sigmoid for confidence and bbox
+# conf_bbox_pred = y_pred[..., self.C:]
+# conf_bbox_pred = tf.keras.activations.sigmoid(conf_bbox_pred)
+#
+# # Concat
+# y_pred = tf.concat([class_pred, conf_bbox_pred], axis=-1)
+
+위와 같이 Predictions을 활성 함수에 넣은 다음 loss를 계산한다
+
+[결과]
+Bad
+
+--------------------------------------------------------------------
+
+<2021-10-14 10:02:48>
+yolov1 모델 훈련 2nd
+[변경 사항]
+1st 모델에서 val_dataset만 drop_remainder=True, shuffle=True로 변경해서 훈련
+
+[결과]
+별 차이 없이 Bad
+
+--------------------------------------------------------------------
+
+<2021-10-14 18:30:24>
+yolov1 모델 훈련 3rd
+[변경 사항]
+1st 모델에서 loss 함수 내에 활성 함수 부분 삭제해서 훈련
+
+[결과]
+1st, 2nd 보다 결과는 좋음
+mAP (0.00001 ~ 0.0001) -> (0.004 ~ 0.01) 까지 올라옴
+
+--------------------------------------------------------------------
+
+<2021-10-15 13:03:01>
+yolov1 모델 훈련 3rd
+[변경 사항]
+1st 모델에서 loss 함수 내에 활성 함수 부분 삭제 및 Fully Connected Layer 다음과 같이 변경
+
+[fully connected layer 형태는 다음과 같다]
+x = keras.layers.Flatten()(x)
+x = keras.layers.Dense(units=4096)(x)
+x = keras.layers.Dropout(0.5)(x)
+output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+[결과]
+mAP 0.0006 정도, loss와 val_loss 450~460 정도로 서로 비슷하게 유지하고 더 이상 안 내려감
+Bad
+
+--------------------------------------------------------------------
+
+<2021-10-18 09:51:44>
+yolov1 모델 훈련 4th
+[변경 사항]
+1st 모델에서 loss 함수 내에 활성 함수 부분 삭제 및 Fully Connected Layer 다음과 같이 변경
+
+[fully connected layer 형태는 다음과 같다]
+x = keras.layers.Flatten()(x)
+x = keras.layers.Dense(units=496)(x)
+x = keras.layers.ReLu()(x)
+output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+[결과]
+Epoch 515에서 멈춤
+mAP 0.0005 정도, loss와 val_loss 460~470 정도로 서로 비슷하게 유지하고 더 이상 안 내려감
+Bad
+
+--------------------------------------------------------------------
+
+<2021-10-18 00:00:00>
+yolov1 모델 훈련 5th
+[변경 사항]
+1st 모델에서 loss 함수 내에 활성 함수 부분 삭제 및 Fully Connected Layer 다음과 같이 변경
+
+[fully connected layer 형태는 다음과 같다]
+x = keras.layers.GlobalAveragePooling2D()(x)
+x = keras.layers.Dense(units=496)(x)
+x = keras.layers.ReLu()(x)
+output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+[결과]
+mAP: 0.014 지금까지 제일 좋은 성능
+
+--------------------------------------------------------------------
+
+<2021-10-19 00:00:00>
+yolov1 모델 훈련 5th
+[변경 사항]
+1st 모델에서 loss 함수 내에 활성 함수 부분 삭제 및 Fully Connected Layer 다음과 같이 변경
+Opimizer 변경: Adam(learning_rate=0.001) -> Nadam(learning_rate=0.001)
+
+[fully connected layer 형태는 다음과 같다]
+x = keras.layers.GlobalAveragePooling2D()(x)
+x = keras.layers.Dense(units=4960)(x)
+x = keras.layers.BatchNormalization()(x)
+x = keras.layers.ReLu()(x)
+output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+
+[결과]

@@ -8,7 +8,7 @@ from tensorflow import keras
 # Set GPU
 ######################################
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 
 ######################################
@@ -93,15 +93,20 @@ def yolov1(input_shape, output_shape, architecture=architecture_config):
     x = yolov1_backbone(input_tensor, architecture)
 
     # neck
-    x = keras.layers.Flatten()(x)
+    # x = keras.layers.Flatten()(x)
+    x = keras.layers.GlobalAveragePooling2D()(x)
 
     # Fully Connected Layer(head)
-    x = keras.layers.Dense(units=4096)(x)
+    x = keras.layers.Dense(units=4960)(x)
     # x = keras.layers.LeakyReLU(0.1)(x)
+    x = keras.layers.BatchNormalization()(x)
     x = keras.layers.ReLU()(x)
-    # output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
-    x = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
-    output_tensor = keras.layers.Reshape(target_shape=output_shape)(x)
+
+    # x = keras.layers.Dropout(0.5)(x)
+
+    output_tensor = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+    # x = keras.layers.Dense(units=(output_shape[0]*output_shape[1]*output_shape[2]))(x)
+    # output_tensor = keras.layers.Reshape(target_shape=output_shape)(x)
 
     return keras.Model(input_tensor, output_tensor)
 
@@ -212,8 +217,8 @@ def vgg16_yolo_v1(input_shape, output_shape):
 if __name__ == "__main__":
     input_shape = (448, 448, 3)
     output_shape = (7, 7, 30)
-    # model = yolov1(input_shape, output_shape)
-    model = mobilenet_v2_yolo_v1(input_shape, output_shape)
+    model = yolov1(input_shape, output_shape)
+    # model = mobilenet_v2_yolo_v1(input_shape, output_shape)
     # model = vgg16_yolo_v1(input_shape, output_shape)
     model.summary()
     # model.save("test.h5")

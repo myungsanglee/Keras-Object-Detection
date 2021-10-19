@@ -373,8 +373,8 @@ if __name__ == "__main__":
     batch_size = 1
 
     # tmp_generator = YoloV1Generator(test_dir, input_shape, batch_size)
-    generator_1 = YoloV1Generator2(test_dir, input_shape, batch_size, augment=True, shuffle=False)
-    generator_2 = YoloV1Generator2(test_dir, input_shape, batch_size, augment=False, shuffle=False)
+    generator_1 = YoloV1Generator2(val_dir, input_shape, batch_size, augment=True, shuffle=False)
+    generator_2 = YoloV1Generator2(val_dir, input_shape, batch_size, augment=False, shuffle=False)
     img_path_array = generator_2.img_path_array
 
     cv2.namedWindow('Aug')
