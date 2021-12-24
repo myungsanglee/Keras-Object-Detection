@@ -3,8 +3,10 @@ from __future__ import absolute_import
 from __future__ import division
 
 import tensorflow as tf
+from tensorflow import keras
 import numpy as np
 
+from yolo_v1 import YoloV1
 
 def representative_dataset():
     for _ in range(100):
@@ -39,11 +41,19 @@ if __name__ == "__main__":
     # model = yolov1(input_shape, output_shape)
     # model.summary()
 
-    model = tf.keras.models.load_model("./test.h5")
-    model.summary()
+    # backbone = keras.applications.VGG16(
+    #     include_top=False, input_shape=(448, 448, 3)
+    # )
+    # model = YoloV1(20, 2, backbone)
+    # tmp_inputs = keras.layers.Input((448, 448, 3))
+    # model(tmp_inputs)
 
+    # model = model.load_weights("ckpt")
+    # # model.summary()
+    # print(model)
     # Convert the model
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)  # path to the SavedModel directory
+    # converter = tf.lite.TFLiteConverter.from_keras_model(model)  # path to the SavedModel directory
+    converter = tf.lite.TFLiteConverter.from_saved_model("test")  # path to the SavedModel directory
     # This enables quantization
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     # This sets the representative dataset for quantization

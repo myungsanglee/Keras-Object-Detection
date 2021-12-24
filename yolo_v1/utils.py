@@ -13,9 +13,9 @@ def intersection_over_union(bbox_true, bbox_pred):
     """
     Calculates intersection-over-union
 
-    Parameters:
+    Arguments:
         bbox_true (Tensor): true bbox       (batch, S, S, 4(x,y,w,h))
-        bbox_pred (Tensor): prediction bbox (batch, S, S, 4(x,y,w,h)
+        bbox_pred (Tensor): prediction bbox (batch, S, S, 4(x,y,w,h))
 
     Returns:
         Tensor: Tensor of iou (batch, S, S, 1)
@@ -48,9 +48,9 @@ def intersection_over_union_numpy(bbox_true, bbox_pred):
     """
     Calculates intersection-over-union
 
-    Parameters:
+    Arguments:
         bbox_true (Numpy Array): true bbox       (batch, S, S, 4(x,y,w,h))
-        bbox_pred (Numpy Array): prediction bbox (batch, S, S, 4(x,y,w,h)
+        bbox_pred (Numpy Array): prediction bbox (batch, S, S, 4(x,y,w,h))
 
     Returns:
         Numpy Array: Numpy Array of iou (batch, S, S, 1)
@@ -84,7 +84,7 @@ def get_all_bboxes(out, S=7, C=20):
     an image split size of S into entire image ratios
     rather than relative to cell ratios.
 
-    Parameters:
+    Arguments:
         out (Tensor): predictions or true_labels (batch, S, S, (B*5)+C)
 
     Returns:
@@ -148,7 +148,7 @@ def get_all_bboxes_numpy(predictions, S=7, C=20):
     an image split size of S into entire image ratios
     rather than relative to cell ratios.
 
-    Parameters:
+    Arguments:
         predictions (Numpy Array): predictions or true_labels (batch, S, S, (B*5)+C)
 
     Returns:
@@ -212,7 +212,7 @@ def non_max_suppression(bboxes, iou_threshold=0.5, threshold=0.4):
     """
     Does Non Max Suppression given bboxes
 
-    Parameters:
+    Arguments:
         bboxes (Tensor): tensor of all bboxes with each grid (S*S, 6)
         specified as [class_idx, confidence_score, x, y, w, h]
         iou_threshold (float): threshold where predicted bboxes is correct
@@ -297,7 +297,7 @@ def non_max_suppression_2(bboxes, iou_threshold=0.5, threshold=0.4):
     """
     Does Non Max Suppression given bboxes
 
-    Parameters:
+    Arguments:
         bboxes (Tensor): tensor of all bboxes with each grid (S*S, 6)
         specified as [class_idx, confidence_score, x, y, w, h]
         iou_threshold (float): threshold where predicted bboxes is correct
@@ -335,7 +335,7 @@ def non_max_suppression_numpy(bboxes, iou_threshold=0.5, threshold=0.4):
     """
     Does Non Max Suppression given bboxes
 
-    Parameters:
+    Arguments:
         bboxes (Numpy Array): numpy array of all bboxes with each grid (S*S, 6)
         specified as [class_idx, confidence_score, x, y, w, h]
         iou_threshold (float): threshold where predicted bboxes is correct
@@ -374,7 +374,7 @@ def mean_average_precision(true_bboxes, pred_bboxes, iou_threshold=0.5, num_clas
     """
     Calculates mean average precision
 
-    Parameters:
+    Arguments:
         true_bboxes (Tensor): Tensor of all bboxes with all images (None, 7)
         specified as [img_idx, class_idx, confidence_score, x, y, w, h]
         pred_bboxes (Tensor): Similar as true_bboxes
@@ -592,7 +592,7 @@ def change_tensor(tensor_1d, idx_col):
     """
     change the value of a specific column in a tensor to 1
 
-    Parameters:
+    Arguments:
         tensor_1d (Tensor): 1D Tensor to change
         idx_col (Tensor): index of specific column to change
 
@@ -616,7 +616,7 @@ def mean_average_precision_2(true_bboxes, pred_bboxes, iou_threshold=0.5, num_cl
     """
     Calculates mean average precision
 
-    Parameters:
+    Arguments:
         true_bboxes (Tensor): Tensor of all bboxes with all images (None, 7)
         specified as [img_idx, class_idx, confidence_score, x, y, w, h]
         pred_bboxes (Tensor): Similar as true_bboxes
@@ -792,7 +792,7 @@ def get_tagged_img(img, out, prediction=True):
     """
     tagging result on img
 
-    Parameters:
+    Arguments:
         img (Numpy Array): Image array
         out (Tensor): true label or prediction (1, 7, 7, 30)
         prediction (Bool): true-prediction, false-true label
@@ -841,7 +841,7 @@ def get_result_of_yolo_v1_inference(predictions, S=7, B=2, C=20):
     """
     Postprocessing of YOLO V1 predictions
 
-    Parameters:
+    Arguments:
         predictions (Numpy): predictions of YOLO V1 (batch, S * S * (B*5)+C)
 
     Returns:

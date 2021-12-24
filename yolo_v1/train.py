@@ -123,9 +123,9 @@ test_writer = tf.summary.create_file_writer(tensorboard_dir + '/test')
 ##################################
 # Callbacks
 ##################################
-def lr_schedule(epoch, lr): # epochëŠ” 0ë¶€í„° ì‹œìž‘
+def lr_schedule(epoch, lr): # epoch?Š” 0ë¶??„° ?‹œ?ž‘
     if epoch >=0 and epoch < 75 :
-        lr = 0.001 + 0.009 * (float(epoch)/(75.0)) # ê°€ì¤‘ì¹˜ë¥¼ 0.001 ~ 0.0075ë¡œ ë³€ê²½
+        lr = 0.001 + 0.009 * (float(epoch)/(75.0)) # ê°?ì¤‘ì¹˜ë¥? 0.001 ~ 0.0075ë¡? ë³?ê²?
         return lr
     elif epoch >= 75 and epoch < 105 :
         lr = 0.001
