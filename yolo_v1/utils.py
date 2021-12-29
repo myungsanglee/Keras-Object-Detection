@@ -9,28 +9,29 @@ import time
 
 
 @tf.function
-def intersection_over_union(bbox_true, bbox_pred):
-    """
-    Calculates intersection-over-union
+def intersection_over_union(boxes1, boxes2):
+    """Calculation of intersection-over-union
 
     Arguments:
-        bbox_true (Tensor): true bbox       (batch, S, S, 4(x,y,w,h))
-        bbox_pred (Tensor): prediction bbox (batch, S, S, 4(x,y,w,h))
+        boxes1 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
+        boxes2 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
 
     Returns:
-        Tensor: Tensor of iou (batch, S, S, 1)
+        Tensor: IoU with shape '(batch, S, S, 1) or (batch, num_boxes, 1) or (num_boxes, 1)'
     """
-    assert tf.is_tensor(bbox_true) and tf.is_tensor(bbox_pred)
+    if not tf.is_tensor(boxes1) or not tf.is_tensor(boxes2):
+        boxes1 = tf.cast(boxes1, dtype=tf.float32)
+        boxes2 = tf.cast(boxes2, dtype=tf.float32)
 
-    box1_xmin = (bbox_true[..., 0:1] - bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
-    box1_ymin = (bbox_true[..., 1:2] - bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
-    box1_xmax = (bbox_true[..., 0:1] + bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
-    box1_ymax = (bbox_true[..., 1:2] + bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
+    box1_xmin = (boxes1[..., 0:1] - boxes1[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymin = (boxes1[..., 1:2] - boxes1[..., 3:4]) / 2. # (batch, S, S, 1)
+    box1_xmax = (boxes1[..., 0:1] + boxes1[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymax = (boxes1[..., 1:2] + boxes1[..., 3:4]) / 2. # (batch, S, S, 1)
 
-    box2_xmin = (bbox_pred[..., 0:1] - bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
-    box2_ymin = (bbox_pred[..., 1:2] - bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
-    box2_xmax = (bbox_pred[..., 0:1] + bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
-    box2_ymax = (bbox_pred[..., 1:2] + bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
+    box2_xmin = (boxes2[..., 0:1] - boxes2[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymin = (boxes2[..., 1:2] - boxes2[..., 3:4]) / 2. # (batch, S, S, 1)
+    box2_xmax = (boxes2[..., 0:1] + boxes2[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymax = (boxes2[..., 1:2] + boxes2[..., 3:4]) / 2. # (batch, S, S, 1)
 
     inter_xmin = tf.math.maximum(box1_xmin, box2_xmin) # (batch, S, S, 1)
     inter_ymin = tf.math.maximum(box1_ymin, box2_ymin) # (batch, S, S, 1)
@@ -44,27 +45,26 @@ def intersection_over_union(bbox_true, bbox_pred):
     return inter_area / (box1_area + box2_area - inter_area + 1e-6) # (batch, S, S, 1)
 
 
-def intersection_over_union_numpy(bbox_true, bbox_pred):
-    """
-    Calculates intersection-over-union
+def intersection_over_union_numpy(boxes1, boxes2):
+    """Calculation of intersection-over-union
 
     Arguments:
-        bbox_true (Numpy Array): true bbox       (batch, S, S, 4(x,y,w,h))
-        bbox_pred (Numpy Array): prediction bbox (batch, S, S, 4(x,y,w,h))
+        boxes1 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
+        boxes2 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
 
     Returns:
-        Numpy Array: Numpy Array of iou (batch, S, S, 1)
+        Numpy Array: IoU with shape '(batch, S, S, 1) or (batch, num_boxes, 1) or (num_boxes, 1)'
     """
 
-    box1_xmin = (bbox_true[..., 0:1] - bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
-    box1_ymin = (bbox_true[..., 1:2] - bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
-    box1_xmax = (bbox_true[..., 0:1] + bbox_true[..., 2:3]) / 2. # (batch, S, S, 1)
-    box1_ymax = (bbox_true[..., 1:2] + bbox_true[..., 3:4]) / 2. # (batch, S, S, 1)
+    box1_xmin = (boxes1[..., 0:1] - boxes1[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymin = (boxes1[..., 1:2] - boxes1[..., 3:4]) / 2. # (batch, S, S, 1)
+    box1_xmax = (boxes1[..., 0:1] + boxes1[..., 2:3]) / 2. # (batch, S, S, 1)
+    box1_ymax = (boxes1[..., 1:2] + boxes1[..., 3:4]) / 2. # (batch, S, S, 1)
 
-    box2_xmin = (bbox_pred[..., 0:1] - bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
-    box2_ymin = (bbox_pred[..., 1:2] - bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
-    box2_xmax = (bbox_pred[..., 0:1] + bbox_pred[..., 2:3]) / 2. # (batch, S, S, 1)
-    box2_ymax = (bbox_pred[..., 1:2] + bbox_pred[..., 3:4]) / 2. # (batch, S, S, 1)
+    box2_xmin = (boxes2[..., 0:1] - boxes2[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymin = (boxes2[..., 1:2] - boxes2[..., 3:4]) / 2. # (batch, S, S, 1)
+    box2_xmax = (boxes2[..., 0:1] + boxes2[..., 2:3]) / 2. # (batch, S, S, 1)
+    box2_ymax = (boxes2[..., 1:2] + boxes2[..., 3:4]) / 2. # (batch, S, S, 1)
 
     inter_xmin = np.maximum(box1_xmin, box2_xmin) # (batch, S, S, 1)
     inter_ymin = np.maximum(box1_ymin, box2_ymin) # (batch, S, S, 1)
@@ -77,12 +77,12 @@ def intersection_over_union_numpy(bbox_true, bbox_pred):
 
     return inter_area / (box1_area + box2_area - inter_area + 1e-6) # (batch, S, S, 1)
 
+
 @tf.function
-def get_all_bboxes(out, S=7, C=20):
-    """
-    Converts bounding boxes output from Yolo with
-    an image split size of S into entire image ratios
-    rather than relative to cell ratios.
+def get_all_bboxes(out, grid=7, num_classes=20):
+    """Converts bounding boxes output from Yolo with
+       an image split size of S into entire image ratios
+       rather than relative to cell ratios.
 
     Arguments:
         out (Tensor): predictions or true_labels (batch, S, S, (B*5)+C)
@@ -92,10 +92,10 @@ def get_all_bboxes(out, S=7, C=20):
     """
     assert tf.is_tensor(out)
 
-    bbox1_start_index = C + 1
-    bbox1_confidence_index = C
-    bbox2_start_index = C + 1 + 5
-    bbox2_confidence_index = C + 5
+    bbox1_start_index = num_classes + 1
+    bbox1_confidence_index = num_classes
+    bbox2_start_index = num_classes + 1 + 5
+    bbox2_confidence_index = num_classes + 5
 
     bboxes1 = out[..., bbox1_start_index:bbox1_start_index+4]  # (batch, S, S, 4)
     bboxes2 = out[..., bbox2_start_index:bbox2_start_index+4] # (batch, S, S, 4)
@@ -111,18 +111,18 @@ def get_all_bboxes(out, S=7, C=20):
     best_boxes = (1 - best_box_index) * bboxes1 + best_box_index * bboxes2 # (batch, S, S, 4)
 
     # Get cell indexes array
-    base_arr = tf.map_fn(fn=lambda x: tf.range(x, x + S), elems=tf.zeros(S))
-    x_cell_indexes = tf.reshape(base_arr, shape=(S, S, 1)) # (S, S, 1)
+    base_arr = tf.map_fn(fn=lambda x: tf.range(x, x + grid), elems=tf.zeros(grid))
+    x_cell_indexes = tf.reshape(base_arr, shape=(grid, grid, 1)) # (S, S, 1)
 
     y_cell_indexes = tf.transpose(base_arr)
-    y_cell_indexes = tf.reshape(y_cell_indexes, shape=(S, S, 1)) # (S, S, 1)
+    y_cell_indexes = tf.reshape(y_cell_indexes, shape=(grid, grid, 1)) # (S, S, 1)
 
     # Convert x, y ratios to YOLO ratios
-    x = 1 / S * (best_boxes[..., :1] + x_cell_indexes) # (batch, S, S, 1)
-    y = 1 / S * (best_boxes[..., 1:2] + y_cell_indexes) # (batch, S, S, 1)
+    x = 1 / grid * (best_boxes[..., :1] + x_cell_indexes) # (batch, S, S, 1)
+    y = 1 / grid * (best_boxes[..., 1:2] + y_cell_indexes) # (batch, S, S, 1)
 
     # Get class indexes
-    class_indexes = tf.math.argmax(out[..., :C], axis=-1) # (batch, S, S)
+    class_indexes = tf.math.argmax(out[..., :num_classes], axis=-1) # (batch, S, S)
     class_indexes = tf.expand_dims(class_indexes, axis=-1) # (batch, S, S, 1)
     class_indexes = tf.cast(class_indexes, dtype=np.float32)
 
@@ -137,7 +137,7 @@ def get_all_bboxes(out, S=7, C=20):
     converted_out = tf.concat([class_indexes, best_confidences, converted_bboxes], axis=-1) # (batch, S, S, 6)
 
     # Get all bboxes
-    converted_out = tf.reshape(converted_out, shape=(-1, S * S, 6)) # (batch, S*S, 6)
+    converted_out = tf.reshape(converted_out, shape=(-1, grid * grid, 6)) # (batch, S*S, 6)
 
     return converted_out # (batch, S*S, 6)
 
@@ -293,23 +293,21 @@ def non_max_suppression(bboxes, iou_threshold=0.5, threshold=0.4):
 
 
 @tf.function
-def non_max_suppression_2(bboxes, iou_threshold=0.5, threshold=0.4):
-    """
-    Does Non Max Suppression given bboxes
+def non_max_suppression_2(boxes, iou_threshold=0.5, conf_threshold=0.4):
+    """Does Non Max Suppression given bboxes
 
     Arguments:
-        bboxes (Tensor): tensor of all bboxes with each grid (S*S, 6)
-        specified as [class_idx, confidence_score, x, y, w, h]
-        iou_threshold (float): threshold where predicted bboxes is correct
-        threshold (float): threshold to remove predicted bboxes
+        boxes (Tensor): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        iou_threshold (float): threshold where predicted boxes is correct
+        conf_threshold (float): threshold to remove predicted boxes
 
     Returns:
-        Tensor: bboxes after performing NMS given a specific IoU threshold (None, 6)
+        Tensor: boxes after performing NMS given a specific IoU threshold '(None, 6)'
     """
-    assert tf.is_tensor(bboxes)
+    assert tf.is_tensor(boxes)
 
     # bboxes smaller than the threshold are removed
-    bboxes_new = tf.gather(bboxes, tf.reshape(tf.where(bboxes[..., 1] > threshold), shape=(-1,)))
+    bboxes_new = tf.gather(boxes, tf.reshape(tf.where(boxes[..., 1] > conf_threshold), shape=(-1,)))
 
     # sort descending by confidence score
     bboxes_new = tf.gather(bboxes_new, tf.argsort(bboxes_new[..., 1], direction='DESCENDING'))
@@ -319,53 +317,52 @@ def non_max_suppression_2(bboxes, iou_threshold=0.5, threshold=0.4):
 
     while not(tf.less(tf.shape(bboxes_new)[0], 1)):
         chosen_box = bboxes_new[0]
-        tmp_array = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+        tmp_boxes = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
         for idx in tf.range(1, tf.shape(bboxes_new)[0]):
             bbox = bboxes_new[idx]
             if bbox[0] != chosen_box[0] or intersection_over_union(chosen_box[2:], bbox[2:]) < iou_threshold:
-                tmp_array = tmp_array.write(tmp_array.size(), bbox)
-        bboxes_new = tmp_array.stack()
+                tmp_boxes = tmp_boxes.write(tmp_boxes.size(), bbox)
+        bboxes_new = tmp_boxes.stack()
 
         bboxes_after_nms = bboxes_after_nms.write(bboxes_after_nms.size(), chosen_box)
 
     return bboxes_after_nms.stack()
 
 
-def non_max_suppression_numpy(bboxes, iou_threshold=0.5, threshold=0.4):
-    """
-    Does Non Max Suppression given bboxes
+def non_max_suppression_numpy(boxes, iou_threshold=0.5, conf_threshold=0.4):
+    """Does Non Max Suppression given boxes
 
     Arguments:
-        bboxes (Numpy Array): numpy array of all bboxes with each grid (S*S, 6)
-        specified as [class_idx, confidence_score, x, y, w, h]
-        iou_threshold (float): threshold where predicted bboxes is correct
-        threshold (float): threshold to remove predicted bboxes
+        boxes (Numpy Array): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        iou_threshold (float): threshold where predicted boxes is correct
+        conf_threshold (float): threshold to remove predicted boxes
 
     Returns:
-        Numpy Array: bboxes after performing NMS given a specific IoU threshold (None, 6)
+        Numpy Array: boxes after performing NMS given a specific IoU threshold '(None, 6)'
     """
 
-    # bboxes smaller than the threshold are removed
-    bboxes_new = np.take(bboxes, np.where(bboxes[..., 1] > threshold)[0], axis=0)
+    # boxes smaller than the conf_threshold are removed
+    boxes = np.take(boxes, np.where(boxes[..., 1] > conf_threshold)[0], axis=0)
 
     # sort descending by confidence score
-    bboxes_new = np.take(bboxes_new, np.argsort(-bboxes_new[..., 1]), axis=0)
+    boxes = np.take(boxes, np.argsort(-boxes[..., 1]), axis=0)
 
-    # get bboxes after nms
-    bboxes_after_nms = np.empty(shape=(0, 6))
+    # get boxes after nms
+    boxes_after_nms = np.empty(shape=(0, 6))
 
-    while not(np.less(bboxes_new.shape[0], 1)):
-        chosen_box = np.expand_dims(bboxes_new[0], axis=0)
-        tmp_array = np.empty(shape=(0, 6))
-        for idx in range(1, bboxes_new.shape[0]):
-            bbox = np.expand_dims(bboxes_new[idx], axis=0)
-            if bbox[0][0] != chosen_box[0][0] or intersection_over_union_numpy(chosen_box[..., 2:], bbox[..., 2:]) < iou_threshold:
-                tmp_array = np.append(tmp_array, bbox, axis=0)
-        bboxes_new = tmp_array
+    while not(np.less(boxes.shape[0], 1)):
+        chosen_box = np.expand_dims(boxes[0], axis=0)
+        print(chosen_box[..., 2:].shape)
+        tmp_boxes = np.empty(shape=(0, 6))
+        for idx in range(1, boxes.shape[0]):
+            tmp_box = np.expand_dims(boxes[idx], axis=0)
+            if tmp_box[0][0] != chosen_box[0][0] or intersection_over_union(chosen_box[..., 2:], tmp_box[..., 2:]) < iou_threshold:
+                tmp_boxes = np.append(tmp_boxes, tmp_box, axis=0)
+        boxes = tmp_boxes
 
-        bboxes_after_nms = np.append(bboxes_after_nms, chosen_box, axis=0)
+        boxes_after_nms = np.append(boxes_after_nms, chosen_box, axis=0)
 
-    return bboxes_after_nms
+    return boxes_after_nms
 
 
 @tf.function(input_signature=[tf.TensorSpec(shape=[None, 7]), tf.TensorSpec(shape=[None, 7])])
@@ -964,7 +961,7 @@ if __name__ == "__main__":
     # nms_bboxes = non_max_suppression(pred_bboxes[0], iou_threshold=0.5, threshold=0.4)
     # print('nmx_bboxes: ', nms_bboxes, '\ntaken_time: ', time.time() - a)
     a = time.time()
-    nms_bboxes_2 = non_max_suppression_2(pred_bboxes[0], iou_threshold=0.5, threshold=0.4)
+    nms_bboxes_2 = non_max_suppression_2(pred_bboxes[0], iou_threshold=0.5, conf_threshold=0.4)
     print('nmx_bboxes_2: ', nms_bboxes_2, '\ntaken_time: ', time.time() - a)
 
     a = time.time()

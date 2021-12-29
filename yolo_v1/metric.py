@@ -74,7 +74,7 @@ class MeanAveragePrecision2:
         pred_bboxes = get_all_bboxes(y_pred)
 
         for idx in tf.range(tf.shape(y_true)[0]):
-            nms_bboxes = non_max_suppression_2(pred_bboxes[idx], iou_threshold=0.5, threshold=0.4)
+            nms_bboxes = non_max_suppression_2(pred_bboxes[idx], iou_threshold=0.5, conf_threshold=0.4)
             pred_img_idx = tf.zeros([tf.shape(nms_bboxes)[0], 1], tf.float32) + self.img_idx
             pred_concat = tf.concat([pred_img_idx, nms_bboxes], axis=1)
 

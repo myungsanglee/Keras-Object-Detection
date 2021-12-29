@@ -144,7 +144,7 @@ for idx in range(test_generator.__len__()):
     second_time = time.time()
     predictions = tf.reshape(predictions, [-1, 7, 7, 30])
     pred_bboxes = get_all_bboxes(predictions)
-    pred_bboxes = non_max_suppression_2(pred_bboxes[0], threshold=0.4, iou_threshold=0.5)
+    pred_bboxes = non_max_suppression_2(pred_bboxes[0], conf_threshold=0.4, iou_threshold=0.5)
     print("NMS FPS: {:.1f}".format(1 / (time.time() - second_time)))
 
     # get bboxes numpy

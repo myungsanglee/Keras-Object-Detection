@@ -3,6 +3,7 @@
 saved_models/
 tensorboard_logs/
 __pycache__/
+yolo_v1_models/
 
 # ignore file
 *.h5
