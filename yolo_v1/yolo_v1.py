@@ -333,6 +333,9 @@ class YoloV1(keras.Model):
         x = self.dense_3(x)
         return self.yolo_v1_outputs(x)
 
+    def build_graph(self):
+        x = self.backbone.input
+        return keras.Model(inputs=x, outputs=self.call(x))
 
 ##################################
 # YOLO v1 Loss Function
@@ -455,84 +458,13 @@ class YoloV1Loss(keras.losses.Loss):
         return loss
 
 
-##################################
-# Setting up training parameters
-##################################
-pwd = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-model_dir = os.path.join(pwd, "yolo_v1_models")
-data_dir = os.path.join(pwd, "data")
-names_path = os.path.join(pwd, "data/test.names")
-num_classes = 3
-num_boxes = 2
-batch_size = 1
-epochs = 100
-learning_rate = 0.001
-input_shape = (448, 448, 3)
-
-##################################
-# Setting up datasets
-##################################
-train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes)
-for idx in range(train_generator.__len__()):
-        x_batch, y_batch = train_generator.__getitem__(idx)
-
-        x_batch = cv2.cvtColor(x_batch[0], cv2.COLOR_RGB2BGR)
-
-        boxes = decode_predictions(y_batch, num_classes, num_boxes)
-
-        x_batch = get_tagged_img(x_batch, boxes, names_path)
-
-        cv2.imshow('Image', x_batch)
-        key = cv2.waitKey(0)
-        if key == 27:
-            cv2.destroyAllWindows()
-            break
-
-##################################
-# Initializing and compiling model
-##################################
-loss_fn = YoloV1Loss(num_classes, num_boxes)
-optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
-
-backbone = keras.applications.VGG16(include_top=False, input_shape=(448, 448, 3))
-model = YoloV1(num_classes, num_boxes, backbone)
-tmp_inputs = keras.Input(shape=(448, 448, 3))
-model(tmp_inputs)
-model.summary()
-model.compile(loss=loss_fn, optimizer=optimizer)
-
-
-
-
-##################################
-# Setting up callbacks
-##################################
-callbacks_list = [
-    tf.keras.callbacks.ModelCheckpoint(
-        filepath=os.path.join(model_dir, "weights" + "_epoch_{epoch}"),
-        monitor="loss",
-        save_best_only=True,
-        save_weights_only=True,
-        verbose=1
-    )
-]
-
-
-##################################
-# Training the model
-##################################
-model.fit(
-    x=train_generator,
-    epochs=epochs,
-    verbose=1,
-    callbacks=callbacks_list
-)
 
 
 
 
 
-# if __name__ == "__main__":
+
+if __name__ == "__main__":
 #     # a = np.array([[0, 0.7, 0.5, 0.5, 0.1, 0.1],
 #     #               [0, 0.6, 0.5, 0.5, 0.1, 0.1],
 #     #               [0, 0.9, 0.5, 0.5, 0.1, 0.1],
@@ -588,4 +520,87 @@ model.fit(
     
 #     # print(decode_predictions(y_true, num_classes, num_boxes))
 #     # print(decode_predictions(y_pred, num_classes, num_boxes))
+
+
+    ##################################
+    # Setting up training parameters
+    ##################################
+    pwd = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    model_dir = os.path.join(pwd, "yolo_v1_models")
+    data_dir = os.path.join(pwd, "data")
+    names_path = os.path.join(pwd, "data/test.names")
+    num_classes = 3
+    num_boxes = 3
+    batch_size = 1
+    epochs = 200
+    learning_rate = 0.001
+    input_shape = (448, 448, 3)
+
+    ##################################
+    # Setting up datasets
+    ##################################
+    train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes)
+    # for idx in range(train_generator.__len__()):
+    #         x_batch, y_batch = train_generator.__getitem__(idx)
+
+    #         x_batch = cv2.cvtColor(x_batch[0], cv2.COLOR_RGB2BGR)
+
+    #         boxes = decode_predictions(y_batch, num_classes, num_boxes)
+
+    #         x_batch = get_tagged_img(x_batch, boxes, names_path)
+
+    #         cv2.imshow('Image', x_batch)
+    #         key = cv2.waitKey(0)
+    #         if key == 27:
+    #             cv2.destroyAllWindows()
+    #             break
+
+    ##################################
+    # Initializing and compiling model
+    ##################################
+    loss_fn = YoloV1Loss(num_classes, num_boxes)
+    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
+
+    backbone = keras.applications.VGG16(include_top=False, input_shape=(448, 448, 3))
+    backbone.trainable = False
+    model = YoloV1(num_classes, num_boxes, backbone)
+    
+    # model.build((None, 448, 448, 3))
+    # model.summary()
+    model.build_graph().summary()
+    
+    tmp_inputs = keras.Input(shape=(448, 448, 3))
+    model(tmp_inputs)
+    
+    # for layer in model.layers:
+        # print(layer, layer.trainable)
+    
+    # model.compile(loss=loss_fn, optimizer=optimizer)
+
+    new_model = keras.Model(inputs=model.input, outputs=model.layers[-2].output)
+    new_model.summary()
+
+    ##################################
+    # Setting up callbacks
+    ##################################
+    callbacks_list = [
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(model_dir, "weights" + "_epoch_{epoch}"),
+            monitor="loss",
+            save_best_only=True,
+            # save_weights_only=True,
+            verbose=1
+        )
+    ]
+
+
+    ##################################
+    # Training the model
+    ##################################
+    # model.fit(
+    #     x=train_generator,
+    #     epochs=epochs,
+    #     verbose=1,
+    #     callbacks=callbacks_list
+    # )
 
