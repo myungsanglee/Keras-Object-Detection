@@ -4,6 +4,8 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 
+from yolo_v1 import decode_predictions
+
 def representative_dataset():
     for _ in range(100):
         data = np.random.rand(1, 448, 448, 3)
@@ -29,20 +31,18 @@ if __name__ == "__main__":
     
     # Convert the model #2
     pwd = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-    model_dir = os.path.join(pwd, "yolo_v1_models", "weights_epoch_199")
+    model_dir = os.path.join(pwd, "yolo_v1_models", "yolo_v1_best_model")
     model = keras.models.load_model(model_dir, compile=False)
-    tmp_inputs = keras.Input(shape=(448, 448, 3))
-    model(tmp_inputs)
     model.summary()
-    print(model.input)
-    print(model.output)
-    print(model.layers[-2].output)
-    new_model = keras.Model(inputs=model.input, outputs=model.layers[-2].output)
-    new_model.summary()
+    # tmp_inputs = keras.Input(shape=(448, 448, 3))
+    # model(tmp_inputs, training=False)
+    
+    # new_model = keras.Model(inputs=model.input, outputs=model.layers[-2].output)
+    # new_model.summary()
     # converter = tf.lite.TFLiteConverter.from_saved_model(model_dir)
-    # tflite_model = converter.convert()
-
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_model = converter.convert()
 
     # Save the model.
     # with open('test.tflite', 'wb') as f:
-        # f.write(tflite_model)
+    #     f.write(tflite_model)

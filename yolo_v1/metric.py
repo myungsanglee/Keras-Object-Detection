@@ -46,7 +46,7 @@ class MeanAveragePrecision:
             self.all_pred_bboxes_variable.assign(tf.concat([self.all_pred_bboxes_variable, all_pred_bboxes.stack()], axis=0))
 
         self.count.assign_add(1)
-
+        
         all_true_bboxes.close()
         all_pred_bboxes.close()
         tf.print('img_idx: ', self.img_idx)

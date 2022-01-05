@@ -30,6 +30,7 @@ print(gpus)
 ##################################
 # Utility Functions
 ##################################
+@tf.function
 def intersection_over_union(boxes1, boxes2):
     """Calculation of intersection-over-union
 
@@ -65,7 +66,7 @@ def intersection_over_union(boxes1, boxes2):
 
     return inter_area / (box1_area + box2_area - inter_area + 1e-6) # (batch, S, S, 1)
 
-
+@tf.function
 def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
     """Does Non Max Suppression given bboxes
 
@@ -102,7 +103,7 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
 
     return bboxes_after_nms.stack()
 
-
+@tf.function
 def decode_predictions(predictions, num_classes=20, num_boxes=2):
     """decodes predictions of the YOLO v1 model
     
@@ -117,8 +118,6 @@ def decode_predictions(predictions, num_classes=20, num_boxes=2):
     
     if not tf.is_tensor(predictions):
         predictions = tf.cast(predictions, dtype=tf.float32)
-
-    assert predictions.shape[0] == 1
 
     # Get class indexes
     class_indexes = tf.math.argmax(predictions[..., :num_classes], axis=-1) # (batch, S, S)
@@ -135,11 +134,17 @@ def decode_predictions(predictions, num_classes=20, num_boxes=2):
     best_conf_one_hot = tf.reshape(tf.one_hot(best_conf_idx, num_boxes), shape=(-1, 7, 7, num_boxes)) # (batch, S, S, num_boxes)
     
     # Get prediction box & confidence
-    pred_box = tf.zeros(shape=[1, 7, 7, 4])
-    pred_conf = tf.zeros(shape=[1, 7, 7, 1])
+    # pred_box = tf.zeros(shape=[1, 7, 7, 4])
+    # pred_conf = tf.zeros(shape=[1, 7, 7, 1])
+    pred_box = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+    pred_conf = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
     for idx in tf.range(num_boxes):
-        pred_box += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(1+(5*idx)):num_classes+(1+(5*idx))+4]
-        pred_conf += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(5*idx):num_classes+(5*idx)+1]
+        # pred_box += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(1+(5*idx)):num_classes+(1+(5*idx))+4]
+        # pred_conf += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(5*idx):num_classes+(5*idx)+1]
+        pred_box = pred_box.write(pred_box.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(1+(5*idx)):num_classes+(1+(5*idx))+4])
+        pred_conf = pred_conf.write(pred_conf.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(5*idx):num_classes+(5*idx)+1])
+    pred_box = tf.math.reduce_sum(pred_box.stack(), axis=0)
+    pred_conf = tf.math.reduce_sum(pred_conf.stack(), axis=0)
 
     # Get cell indexes array
     base_arr = tf.map_fn(fn=lambda x: tf.range(x, x + 7), elems=tf.zeros(7))
@@ -218,7 +223,7 @@ class YoloV1Generator(keras.utils.Sequence):
         self.shuffle = shuffle
         self.indexes = None
         self.on_epoch_end()
-        print(self.img_path_array)
+
     def on_epoch_end(self):
         self.indexes = np.arange(len(self.img_path_array))
         if self.shuffle:
@@ -330,12 +335,69 @@ class YoloV1(keras.Model):
         x = self.dense_1(x)
         x = self.dense_2(x)
         x = self.dropout(x)
-        x = self.dense_3(x)
+        x = self.dense_3(x) 
         return self.yolo_v1_outputs(x)
-
+    
     def build_graph(self):
         x = self.backbone.input
         return keras.Model(inputs=x, outputs=self.call(x))
+
+
+class DecodePredictions(keras.layers.Layer):
+    def __init__(self, num_classes, num_boxes):
+        super(DecodePredictions, self).__init__(name="DecodePredictions")
+        self.num_classes = num_classes
+        self.num_boxes = num_boxes
+        self.nms = keras.layers.Lambda(non_max_suppression, name="nms")
+  
+    def call(self, predictions):
+        # Get class indexes
+        class_indexes = tf.math.argmax(predictions[..., :self.num_classes], axis=-1) # (batch, S, S)
+        class_indexes = tf.expand_dims(class_indexes, axis=-1) # (batch, S, S, 1)
+        class_indexes = tf.cast(class_indexes, dtype=np.float32)
+        
+        # Get best confidence one-hot
+        confidences = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+        for idx in tf.range(self.num_boxes):
+            confidence = predictions[..., self.num_classes+(5*idx):self.num_classes+(5*idx)+1]
+            confidences = confidences.write(confidences.size(), confidence)
+        confidences = confidences.stack() # (num_boxes, batch, S, S, 1)
+        best_conf_idx = tf.math.argmax(confidences, axis=0) # (batch, S, S, 1)
+        best_conf_one_hot = tf.reshape(tf.one_hot(best_conf_idx, self.num_boxes), shape=(-1, 7, 7, self.num_boxes)) # (batch, S, S, num_boxes)
+        
+        # Get prediction box & confidence
+        # pred_box = tf.zeros(shape=[1, 7, 7, 4])
+        # pred_conf = tf.zeros(shape=[1, 7, 7, 1])
+        pred_box = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+        pred_conf = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+        for idx in tf.range(self.num_boxes):
+            # pred_box += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(1+(5*idx)):num_classes+(1+(5*idx))+4]
+            # pred_conf += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(5*idx):num_classes+(5*idx)+1]
+            pred_box = pred_box.write(pred_box.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., self.num_classes+(1+(5*idx)):self.num_classes+(1+(5*idx))+4])
+            pred_conf = pred_conf.write(pred_conf.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., self.num_classes+(5*idx):self.num_classes+(5*idx)+1])
+        pred_box = tf.math.reduce_sum(pred_box.stack(), axis=0)
+        pred_conf = tf.math.reduce_sum(pred_conf.stack(), axis=0)
+        
+        # Get cell indexes array
+        base_arr = tf.map_fn(fn=lambda x: tf.range(x, x + 7), elems=tf.zeros(7))
+        x_cell_indexes = tf.reshape(base_arr, shape=(7, 7, 1)) # (S, S, 1)
+
+        y_cell_indexes = tf.transpose(base_arr)
+        y_cell_indexes = tf.reshape(y_cell_indexes, shape=(7, 7, 1)) # (S, S, 1)
+
+        # Convert x, y ratios to YOLO ratios
+        x = 1 / 7 * (pred_box[..., :1] + x_cell_indexes) # (batch, S, S, 1)
+        y = 1 / 7 * (pred_box[..., 1:2] + y_cell_indexes) # (batch, S, S, 1)
+        
+        pred_box = tf.concat([x, y, pred_box[..., 2:4]], axis=-1) # (batch, S, S, 4)
+        
+        # Concatenate result
+        pred_result = tf.concat([class_indexes, pred_conf, pred_box], axis=-1) # (batch, S, S, 6)
+
+        # Get all bboxes
+        pred_result = tf.reshape(pred_result, shape=(-1, 7*7, 6)) # (batch, S*S, 6)
+
+        return self.nms(pred_result[0])
 
 ##################################
 # YOLO v1 Loss Function
@@ -458,12 +520,6 @@ class YoloV1Loss(keras.losses.Loss):
         return loss
 
 
-
-
-
-
-
-
 if __name__ == "__main__":
 #     # a = np.array([[0, 0.7, 0.5, 0.5, 0.1, 0.1],
 #     #               [0, 0.6, 0.5, 0.5, 0.1, 0.1],
@@ -530,11 +586,12 @@ if __name__ == "__main__":
     data_dir = os.path.join(pwd, "data")
     names_path = os.path.join(pwd, "data/test.names")
     num_classes = 3
-    num_boxes = 3
+    num_boxes = 2
     batch_size = 1
     epochs = 200
     learning_rate = 0.001
     input_shape = (448, 448, 3)
+
 
     ##################################
     # Setting up datasets
@@ -561,31 +618,23 @@ if __name__ == "__main__":
     loss_fn = YoloV1Loss(num_classes, num_boxes)
     optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
 
-    backbone = keras.applications.VGG16(include_top=False, input_shape=(448, 448, 3))
+    backbone = keras.applications.VGG16(include_top=False, input_shape=(None, None, 3))
     backbone.trainable = False
     model = YoloV1(num_classes, num_boxes, backbone)
-    
-    # model.build((None, 448, 448, 3))
-    # model.summary()
-    model.build_graph().summary()
-    
-    tmp_inputs = keras.Input(shape=(448, 448, 3))
-    model(tmp_inputs)
-    
+    # model.build_graph().summary()
+
     # for layer in model.layers:
         # print(layer, layer.trainable)
     
-    # model.compile(loss=loss_fn, optimizer=optimizer)
+    model.compile(loss=loss_fn, optimizer=optimizer)
 
-    new_model = keras.Model(inputs=model.input, outputs=model.layers[-2].output)
-    new_model.summary()
 
     ##################################
     # Setting up callbacks
     ##################################
     callbacks_list = [
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(model_dir, "weights" + "_epoch_{epoch}"),
+            filepath=os.path.join(model_dir, "yolo_v1_best_model"),
             monitor="loss",
             save_best_only=True,
             # save_weights_only=True,
@@ -597,10 +646,10 @@ if __name__ == "__main__":
     ##################################
     # Training the model
     ##################################
-    # model.fit(
-    #     x=train_generator,
-    #     epochs=epochs,
-    #     verbose=1,
-    #     callbacks=callbacks_list
-    # )
+    model.fit(
+        x=train_generator,
+        epochs=epochs,
+        verbose=1,
+        callbacks=callbacks_list
+    )
 
