@@ -123,9 +123,9 @@ test_writer = tf.summary.create_file_writer(tensorboard_dir + '/test')
 ##################################
 # Callbacks
 ##################################
-def lr_schedule(epoch, lr): # epoch?Š” 0ë¶??„° ?‹œ?ž‘
+def lr_schedule(epoch, lr): # epoch?ï¿½ï¿½ 0ï¿½??ï¿½ï¿½ ?ï¿½ï¿½?ï¿½ï¿½
     if epoch >=0 and epoch < 75 :
-        lr = 0.001 + 0.009 * (float(epoch)/(75.0)) # ê°?ì¤‘ì¹˜ë¥? 0.001 ~ 0.0075ë¡? ë³?ê²?
+        lr = 0.001 + 0.009 * (float(epoch)/(75.0)) # ï¿½?ì¤‘ì¹˜ï¿½? 0.001 ~ 0.0075ï¿½? ï¿½?ï¿½?
         return lr
     elif epoch >= 75 and epoch < 105 :
         lr = 0.001
@@ -136,8 +136,9 @@ def lr_schedule(epoch, lr): # epoch?Š” 0ë¶??„° ?‹œ?ž‘
 
 
 # lr_scheduler = CosineAnnealingScheduler(0.001, verbose=1)
-lr_decay_fn = (keras.experimental.CosineDecayRestarts(initial_learning_rate=0.001, first_decay_steps=100))
-lr_scheduler = keras.callbacks.LearningRateScheduler(lr_decay_fn)
+# lr_decay_fn = (keras.experimental.CosineDecayRestarts(initial_learning_rate=0.001, first_decay_steps=100))
+# scheduler_cb = keras.callbacks.LearningRateScheduler(lr_decay_fn)
+scheduler_cb = keras.callbacks.LearningRateScheduler(lr_schedule)
 
 reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                                               factor=0.5,
@@ -221,8 +222,8 @@ custom_callback = CustomCallback(test_generator=val_generator,
                                  training=True,
                                  test_writer=valid_writer)
 
-callbacks = [save_model, lr_scheduler, tensorboard, custom_callback]
-# callbacks = [save_model]
+callbacks = [save_model, scheduler_cb, tensorboard, custom_callback]
+
 
 ##################################
 # Train Model

@@ -5,6 +5,9 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 import cv2
+import albumentations as A
+
+from utils import MeanAveragePrecisionNumpy, MeanAveragePrecision
 
 ######################################
 # Set GPU
@@ -81,14 +84,14 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
     if not tf.is_tensor(boxes):
         boxes = tf.cast(boxes, dtype=tf.float32)
 
-    # bboxes smaller than the threshold are removed
+    # boxes smaller than the threshold are removed
     boxes = tf.gather(boxes, tf.reshape(tf.where(boxes[..., 1] > conf_threshold), shape=(-1,)))
 
     # sort descending by confidence score
     boxes = tf.gather(boxes, tf.argsort(boxes[..., 1], direction='DESCENDING'))
 
-    # get bboxes after nms
-    bboxes_after_nms = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+    # get boxes after nms
+    boxes_after_nms = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
 
     while not(tf.less(tf.shape(boxes)[0], 1)):
         chosen_box = boxes[0]
@@ -99,9 +102,9 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
                 tmp_boxes = tmp_boxes.write(tmp_boxes.size(), bbox)
         boxes = tmp_boxes.stack()
 
-        bboxes_after_nms = bboxes_after_nms.write(bboxes_after_nms.size(), chosen_box)
+        boxes_after_nms = boxes_after_nms.write(boxes_after_nms.size(), chosen_box)
 
-    return bboxes_after_nms.stack()
+    return boxes_after_nms.stack()
 
 @tf.function
 def decode_predictions(predictions, num_classes=20, num_boxes=2):
@@ -174,6 +177,7 @@ def get_tagged_img(img, boxes, names_path):
     Arguments:
         img (Numpy Array): Image array
         boxes (Tensor): boxes after performing NMS (None, 6)
+        names_path (String): path of label names file
 
     Returns:
         Numpy Array: tagged image array
@@ -211,15 +215,16 @@ def get_tagged_img(img, boxes, names_path):
 # Dataset Generator
 ##################################
 class YoloV1Generator(keras.utils.Sequence):
-    def __init__(self, data_dir, input_shape, batch_size, num_classes=20, num_boxes=2, augment=False, shuffle=False):
-        self.img_path_array = np.array(glob(data_dir + '\\*.jpg'))
+    def __init__(self, data_dir, input_shape, batch_size, num_classes, num_boxes, transforms, grid=7, drop_remainder=False, shuffle=False):
+        self.img_path_array = np.array(glob(data_dir + '/*.jpg'))
         self.input_shape = input_shape
-        self.output_shape = (7, 7, num_classes + (num_boxes*5))
+        self.output_shape = (grid, grid, num_classes + (num_boxes*5))
         self.batch_size = batch_size
-        self.grid = 7
+        self.drop_remainder = drop_remainder
+        self.grid = grid
         self.num_boxes = num_boxes
         self.num_classes = num_classes
-        self.augment = augment
+        self.transforms = transforms
         self.shuffle = shuffle
         self.indexes = None
         self.on_epoch_end()
@@ -230,70 +235,91 @@ class YoloV1Generator(keras.utils.Sequence):
             np.random.shuffle(self.indexes)
 
     def __len__(self):
-        return int(np.floor(len(self.img_path_array)) / self.batch_size)
+        if self.drop_remainder:
+            return int(len(self.img_path_array) // self.batch_size)
+        else:
+            share = float(len(self.img_path_array) // self.batch_size)
+            division_result = float(len(self.img_path_array) / self.batch_size)
+            if division_result - share > 0.:
+                return int(share + 1)
+            else:
+                return int(share)
 
     def __getitem__(self, index):
-        indexes = self.indexes[index * self.batch_size: (index + 1) * self.batch_size]
+        if self.drop_remainder:
+            indexes = self.indexes[index * self.batch_size: (index + 1) * self.batch_size]
+        else:
+            if (index + 1) * self.batch_size >= len(self.img_path_array):
+                indexes = self.indexes[index * self.batch_size:]
+            else:
+                indexes = self.indexes[index * self.batch_size: (index + 1) * self.batch_size]
         img_path_array = self.img_path_array[indexes]
-        x, y = self._data_gen(img_path_array)
+        x, y = self._get_data(img_path_array)
         return x, y
 
-    def _data_gen(self, img_path_array):
+    def _get_data(self, img_path_array):
         cv2.setNumThreads(0)
-        batch_images = np.zeros(shape=(self.batch_size, self.input_shape[0], self.input_shape[1], self.input_shape[2]),
-                                dtype=np.float32)
 
-        batch_labels = np.zeros(shape=(self.batch_size, self.output_shape[0], self.output_shape[1], self.output_shape[2]),
-                                dtype=np.float32)
+        batch_images = np.zeros(
+            shape=(self.batch_size, self.input_shape[0], self.input_shape[1], self.input_shape[2]),
+            dtype=np.float32
+        )
+
+        batch_labels = np.zeros(
+            shape=(self.batch_size, self.output_shape[0], self.output_shape[1], self.output_shape[2]),
+            dtype=np.float32
+        )
 
         for i, img_path in enumerate(img_path_array):
             image = cv2.imread(img_path)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            image = cv2.resize(image, (self.input_shape[0], self.input_shape[1]))
-            image = image / 255.
 
             label_path = img_path.replace('.jpg', '.txt')
-            label = self._get_label_matrix(label_path)
+            boxes = self._get_boxes(label_path)
+            
+            transformed = self.transforms(image=image, bboxes=boxes)
 
-            batch_images[i] = image
-            batch_labels[i] = label
+            batch_images[i] = transformed['image']
+            batch_labels[i] = self._get_labels(transformed['bboxes'])
 
         return batch_images, batch_labels
 
-    def _get_label_matrix(self, label_path):
-        # label matrix = S*S*(B*5 + C)
-        label_matrix = np.zeros(self.output_shape)
+    def _get_labels(self, boxes):
+        # labels matrix = S*S*(B*5 + C)
+        labels_matrix = np.zeros(self.output_shape)
 
-        # Get label data
-        with open(label_path, 'r') as f:
-            label_data = f.readlines()
-        label_data = [data.strip() for data in label_data]
-
-        for data in label_data:
-            # Get data list of label, bbox info
-            data_list = data.split(' ')
-            data_list = [float(data) for data in data_list]
-
+        for box in boxes:
             # Get Class index, bbox info
-            cls = int(data_list[0])
-            x = data_list[1]
-            y = data_list[2]
-            w = data_list[3]
-            h = data_list[4]
+            cls = int(box[-1])
+            cx = box[0]
+            cy = box[1]
+            w = box[2]
+            h = box[3]
 
             # Start from grid position and calculate x, y
-            loc = [self.grid * y, self.grid * x]
+            loc = [self.grid * cy, self.grid * cx]
             loc_i = int(loc[0])
             loc_j = int(loc[1])
             y = loc[0] - loc_i
             x = loc[1] - loc_j
 
-            if label_matrix[loc_i, loc_j, self.num_classes] == 0: # confidence
-                label_matrix[loc_i, loc_j, cls] = 1 # class
-                label_matrix[loc_i, loc_j, self.num_classes+1:self.num_classes+5] = [x, y, w, h]
-                label_matrix[loc_i, loc_j, self.num_classes] = 1 # confidence
+            if labels_matrix[loc_i, loc_j, self.num_classes] == 0: # confidence
+                labels_matrix[loc_i, loc_j, cls] = 1 # class
+                labels_matrix[loc_i, loc_j, self.num_classes+1:self.num_classes+5] = [x, y, w, h]
+                labels_matrix[loc_i, loc_j, self.num_classes] = 1 # confidence
 
-        return label_matrix
+        return labels_matrix
+
+    def _get_boxes(self, label_path):
+        boxes = np.zeros((0, 5))
+        with open(label_path, 'r') as f:
+            annotations = f.read().splitlines()
+            for annot in annotations:
+                class_id, cx, cy, w, h = map(float, annot.split(' '))
+                annotation = np.array([[cx, cy, w, h, class_id]])
+                boxes = np.append(boxes, annotation, axis=0)
+
+        return boxes
 
 
 ##################################
@@ -341,63 +367,6 @@ class YoloV1(keras.Model):
     def build_graph(self):
         x = self.backbone.input
         return keras.Model(inputs=x, outputs=self.call(x))
-
-
-class DecodePredictions(keras.layers.Layer):
-    def __init__(self, num_classes, num_boxes):
-        super(DecodePredictions, self).__init__(name="DecodePredictions")
-        self.num_classes = num_classes
-        self.num_boxes = num_boxes
-        self.nms = keras.layers.Lambda(non_max_suppression, name="nms")
-  
-    def call(self, predictions):
-        # Get class indexes
-        class_indexes = tf.math.argmax(predictions[..., :self.num_classes], axis=-1) # (batch, S, S)
-        class_indexes = tf.expand_dims(class_indexes, axis=-1) # (batch, S, S, 1)
-        class_indexes = tf.cast(class_indexes, dtype=np.float32)
-        
-        # Get best confidence one-hot
-        confidences = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        for idx in tf.range(self.num_boxes):
-            confidence = predictions[..., self.num_classes+(5*idx):self.num_classes+(5*idx)+1]
-            confidences = confidences.write(confidences.size(), confidence)
-        confidences = confidences.stack() # (num_boxes, batch, S, S, 1)
-        best_conf_idx = tf.math.argmax(confidences, axis=0) # (batch, S, S, 1)
-        best_conf_one_hot = tf.reshape(tf.one_hot(best_conf_idx, self.num_boxes), shape=(-1, 7, 7, self.num_boxes)) # (batch, S, S, num_boxes)
-        
-        # Get prediction box & confidence
-        # pred_box = tf.zeros(shape=[1, 7, 7, 4])
-        # pred_conf = tf.zeros(shape=[1, 7, 7, 1])
-        pred_box = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        pred_conf = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        for idx in tf.range(self.num_boxes):
-            # pred_box += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(1+(5*idx)):num_classes+(1+(5*idx))+4]
-            # pred_conf += best_conf_one_hot[..., idx:idx+1] * predictions[..., num_classes+(5*idx):num_classes+(5*idx)+1]
-            pred_box = pred_box.write(pred_box.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., self.num_classes+(1+(5*idx)):self.num_classes+(1+(5*idx))+4])
-            pred_conf = pred_conf.write(pred_conf.size(), best_conf_one_hot[..., idx:idx+1] * predictions[..., self.num_classes+(5*idx):self.num_classes+(5*idx)+1])
-        pred_box = tf.math.reduce_sum(pred_box.stack(), axis=0)
-        pred_conf = tf.math.reduce_sum(pred_conf.stack(), axis=0)
-        
-        # Get cell indexes array
-        base_arr = tf.map_fn(fn=lambda x: tf.range(x, x + 7), elems=tf.zeros(7))
-        x_cell_indexes = tf.reshape(base_arr, shape=(7, 7, 1)) # (S, S, 1)
-
-        y_cell_indexes = tf.transpose(base_arr)
-        y_cell_indexes = tf.reshape(y_cell_indexes, shape=(7, 7, 1)) # (S, S, 1)
-
-        # Convert x, y ratios to YOLO ratios
-        x = 1 / 7 * (pred_box[..., :1] + x_cell_indexes) # (batch, S, S, 1)
-        y = 1 / 7 * (pred_box[..., 1:2] + y_cell_indexes) # (batch, S, S, 1)
-        
-        pred_box = tf.concat([x, y, pred_box[..., 2:4]], axis=-1) # (batch, S, S, 4)
-        
-        # Concatenate result
-        pred_result = tf.concat([class_indexes, pred_conf, pred_box], axis=-1) # (batch, S, S, 6)
-
-        # Get all bboxes
-        pred_result = tf.reshape(pred_result, shape=(-1, 7*7, 6)) # (batch, S*S, 6)
-
-        return self.nms(pred_result[0])
 
 ##################################
 # YOLO v1 Loss Function
@@ -521,63 +490,6 @@ class YoloV1Loss(keras.losses.Loss):
 
 
 if __name__ == "__main__":
-#     # a = np.array([[0, 0.7, 0.5, 0.5, 0.1, 0.1],
-#     #               [0, 0.6, 0.5, 0.5, 0.1, 0.1],
-#     #               [0, 0.9, 0.5, 0.5, 0.1, 0.1],
-#     #               [1, 0.7, 0.2, 0.2, 0.1, 0.1],
-#     #               [1, 0.9, 0.2, 0.2, 0.1, 0.1],
-#     #               [1, 0.8, 0.2, 0.2, 0.1, 0.1]])
-#     # print(non_max_suppression(a))
-    
-#     """Loss Function Test"""
-#     num_classes = 3
-#     num_boxes = 2
-#     y_true = np.zeros(shape=(1, 7, 7, (num_classes + (5*num_boxes))), dtype=np.float32)
-#     y_true[:, 0, 0, 0] = 1 # class
-#     y_true[:, 0, 0, num_classes] = 1 # confidence1
-#     y_true[:, 0, 0, num_classes+1:num_classes+5] = [0.5, 0.5, 0.1, 0.1] # box1
-    
-#     y_true[:, 3, 3, 1] = 1 # class
-#     y_true[:, 3, 3, num_classes] = 1 # confidence1
-#     y_true[:, 3, 3, num_classes+1:num_classes+5] = [0.5, 0.5, 0.1, 0.1] # box1
-    
-#     y_true[:, 6, 6, 2] = 1 # class
-#     y_true[:, 6, 6, num_classes] = 1 # confidence1
-#     y_true[:, 6, 6, num_classes+1:num_classes+5] = [0.5, 0.5, 0.1, 0.1] # box1
-    
-#     y_true = tf.cast(y_true, tf.float32)
-#     # print(y_true)
-    
-#     y_pred = np.zeros(shape=(1, 7, 7, (num_classes + (5*num_boxes))), dtype=np.float32)
-#     y_pred[:, 0, 0, :num_classes] = [0.8, 0.5, 0.1] # class
-#     y_pred[:, 0, 0, num_classes] = 0.6 # confidence1
-#     y_pred[:, 0, 0, num_classes+1:num_classes+5] = [0.49, 0.49, 0.1, 0.1] # box1
-#     y_pred[:, 0, 0, num_classes+5] = 0.2 # confidence2
-#     y_pred[:, 0, 0, num_classes+6:num_classes+10] = [0.45, 0.45, 0.1, 0.1] # box2
-    
-#     y_pred[:, 3, 3, :num_classes] = [0.2, 0.8, 0.1] # class
-#     y_pred[:, 3, 3, num_classes] = 0.1 # confidence1
-#     y_pred[:, 3, 3, num_classes+1:num_classes+5] = [0.45, 0.45, 0.1, 0.1] # box1
-#     y_pred[:, 3, 3, num_classes+5] = 0.9 # confidence2
-#     y_pred[:, 3, 3, num_classes+6:num_classes+10] = [0.49, 0.49, 0.1, 0.1] # box2
-    
-#     y_pred[:, 6, 6, :num_classes] = [0.1, 0.5, 0.8] # class
-#     y_pred[:, 6, 6, num_classes] = 0.6 # confidence1
-#     y_pred[:, 6, 6, num_classes+1:num_classes+5] = [0.49, 0.49, 0.1, 0.1] # box1
-#     y_pred[:, 6, 6, num_classes+5] = 0.2 # confidence2
-#     y_pred[:, 6, 6, num_classes+6:num_classes+10] = [0.45, 0.45, 0.1, 0.1] # box2
-    
-#     y_pred = tf.cast(y_pred, tf.float32)
-#     # print(y_pred)
-    
-#     loss_fn = YoloV1Loss(num_classes, num_boxes)
-#     loss = loss_fn(y_true, y_pred)
-#     print(loss)
-    
-#     # print(decode_predictions(y_true, num_classes, num_boxes))
-#     # print(decode_predictions(y_pred, num_classes, num_boxes))
-
-
     ##################################
     # Setting up training parameters
     ##################################
@@ -596,21 +508,20 @@ if __name__ == "__main__":
     ##################################
     # Setting up datasets
     ##################################
-    train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes)
-    # for idx in range(train_generator.__len__()):
-    #         x_batch, y_batch = train_generator.__getitem__(idx)
+    train_transforms = A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.ColorJitter(),
+        A.RandomResizedCrop(448, 448, (0.8, 1)),
+        A.Normalize(0, 1)
+    ], bbox_params=A.BboxParams(format='yolo', min_visibility=0.1))
+    
+    test_transforms = A.Compose([
+        A.Resize(448, 448),
+        A.Normalize(0, 1)
+    ], bbox_params=A.BboxParams(format='yolo', min_visibility=0.1))
 
-    #         x_batch = cv2.cvtColor(x_batch[0], cv2.COLOR_RGB2BGR)
-
-    #         boxes = decode_predictions(y_batch, num_classes, num_boxes)
-
-    #         x_batch = get_tagged_img(x_batch, boxes, names_path)
-
-    #         cv2.imshow('Image', x_batch)
-    #         key = cv2.waitKey(0)
-    #         if key == 27:
-    #             cv2.destroyAllWindows()
-    #             break
+    train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=train_transforms)
+    test_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=test_transforms)
 
     ##################################
     # Initializing and compiling model
@@ -646,10 +557,33 @@ if __name__ == "__main__":
     ##################################
     # Training the model
     ##################################
-    model.fit(
-        x=train_generator,
-        epochs=epochs,
-        verbose=1,
-        callbacks=callbacks_list
-    )
+    # model.fit(
+    #     x=train_generator,
+    #     epochs=epochs,
+    #     verbose=1,
+    #     callbacks=callbacks_list
+    # )
 
+    ##################################
+    # Evaluating the model
+    ##################################
+    model_path = os.path.join(model_dir, "yolo_v1_best_model")
+    evaluate_model = keras.models.load_model(model_path, compile=False)
+    
+    from utils import MeanAveragePrecision
+    map_metric = MeanAveragePrecision(num_classes, num_boxes)
+    map_metric_np = MeanAveragePrecisionNumpy(num_classes, num_boxes)
+    
+    for idx in range(test_generator.__len__()):
+        batch_x, batch_y = test_generator.__getitem__(idx)
+        
+        predictions = evaluate_model(batch_x, training=False)
+        
+        map_metric.update_state(batch_y, predictions)
+        map_metric_np.update_state(np.array(batch_y, dtype=np.float32), np.array(predictions, dtype=np.float32))
+
+    map = map_metric.result()
+    print(f'mAP: {map:.4f}')
+    
+    map = map_metric_np.result()
+    print(f'mAP: {map:.4f}')
