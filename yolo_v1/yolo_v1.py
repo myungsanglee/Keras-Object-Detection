@@ -1,13 +1,15 @@
 import os
 from glob import glob
+import time
+import sys
 
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 import cv2
 import albumentations as A
+from tqdm import tqdm
 
-from utils import MeanAveragePrecisionNumpy, MeanAveragePrecision
 
 ######################################
 # Set GPU
@@ -168,7 +170,225 @@ def decode_predictions(predictions, num_classes=20, num_boxes=2):
     # Get all bboxes
     pred_result = tf.reshape(pred_result, shape=(-1, 7*7, 6)) # (batch, S*S, 6)
     
-    return non_max_suppression(pred_result[0])
+    return pred_result
+
+
+@tf.function
+def change_tensor(tensor_1d, idx_col):
+    """change the value of a specific column in a tensor to 1
+
+    Arguments:
+        tensor_1d (Tensor): 1D Tensor to change
+        idx_col (Tensor): index of specific column to change
+
+    Returns:
+        Tensor: changed tensor_1d
+    """
+    dst = tf.TensorArray(tf.int32, size=0, dynamic_size=True)
+    idx = tf.constant(0)
+    for value in tensor_1d:
+        if idx == idx_col:
+            dst = dst.write(dst.size(), tf.constant(1))
+        else:
+            dst = dst.write(dst.size(), value)
+        idx += 1
+    return dst.stack()
+
+
+# @tf.function(input_signature=[tf.TensorSpec(shape=(None, 7)), tf.TensorSpec(shape=(None, 7))])
+@tf.function
+def mean_average_precision(true_boxes, pred_boxes, num_classes, iou_threshold=0.5):
+    """Calculates mean average precision
+
+    Arguments:
+        true_boxes (Tensor): Tensor of all boxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, x, y, w, h]
+        pred_boxes (Tensor): Similar as true_bboxes
+        num_classes (int): number of classes
+        iou_threshold (float): threshold where predicted boxes is correct
+
+    Returns:
+        Float: mAP value across all classes given a specific IoU threshold
+    """
+    
+    assert tf.is_tensor(true_boxes) and tf.is_tensor(pred_boxes)
+
+    # list storing all AP for respective classes
+    average_precisions = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+
+    # used for numerical stability later on
+    epsilon = 1e-6
+
+    for c in tf.range(num_classes, dtype=tf.float32):
+        tf.print('Calculating AP: ', c, ' / ', num_classes)
+        
+        # detections, ground_truths variables in specific class
+        detections = tf.gather(pred_boxes, tf.reshape(tf.where(pred_boxes[..., 1] == c), shape=(-1,)))
+        ground_truths = tf.gather(true_boxes, tf.reshape(tf.where(true_boxes[..., 1] == c), shape=(-1,)))
+
+        # If none exists for this class then we can safely skip
+        total_true_boxes = tf.cast(tf.shape(ground_truths)[0], dtype=tf.float32)
+        if total_true_boxes == 0.:
+            average_precisions = average_precisions.write(average_precisions.size(), tf.constant(0, dtype=tf.float32))
+            continue
+
+        # tf.print(c, ' class ground truths size: ', tf.shape(ground_truths)[0])
+        # tf.print(c, ' class detections size: ', tf.shape(detections)[0])
+
+        # Get the number of true boxes by image index
+        img_idx, idx, count = tf.unique_with_counts(ground_truths[..., 0])
+        img_idx = tf.cast(img_idx, dtype=tf.int32)
+
+        # Convert idx to idx tensor for find num of true boxes by img idx
+        idx_tensor = tf.TensorArray(tf.int32, size=0, dynamic_size=True)
+        for i in tf.range(tf.math.reduce_max(idx) + 1):
+            idx_tensor = idx_tensor.write(idx_tensor.size(), i)
+        idx_tensor = idx_tensor.stack()
+
+        # Get hash table: key - img_idx, value - idx_tensor
+        table = tf.lookup.experimental.DenseHashTable(
+            key_dtype=tf.int32,
+            value_dtype=tf.int32,
+            default_value=-1,
+            empty_key=-1,
+            deleted_key=-2
+        )
+        table.insert(img_idx, idx_tensor)
+
+        # Get true boxes num array
+        ground_truth_num = tf.TensorArray(tf.int32, size=tf.math.reduce_max(idx) + 1, dynamic_size=True, clear_after_read=False)
+        for i in tf.range(tf.math.reduce_max(idx) + 1):
+            ground_truth_num = ground_truth_num.write(i, tf.zeros(tf.math.reduce_max(count), dtype=tf.int32))
+
+        # sort by confidence score
+        detections = tf.gather(detections, tf.argsort(detections[..., 2], direction='DESCENDING'))
+        true_positive = tf.TensorArray(tf.float32, size=tf.shape(detections)[0], element_shape=())
+        false_positive = tf.TensorArray(tf.float32, size=tf.shape(detections)[0], element_shape=())
+
+        detections_size = tf.shape(detections)[0]
+        detection_idx = tf.constant(0, dtype=tf.int32)
+        for detection in detections:
+            # tf.print('progressing of detection: ', detection_idx, ' / ', detections_size)
+            # tf.print('detection_img_idx: ', detection[0])
+            # tf.print('detection_confidence: ', detection[2])
+
+            ground_truth_img = tf.gather(ground_truths, tf.reshape(tf.where(ground_truths[..., 0] == detection[0]),
+                                                                   shape=(-1,)))
+            # tf.print('ground_truth_img: ', tf.shape(ground_truth_img)[0])
+
+            best_iou = tf.TensorArray(tf.float32, size=1, element_shape=(1,), clear_after_read=False)
+            best_gt_idx = tf.TensorArray(tf.int32, size=1, element_shape=(), clear_after_read=False)
+
+            gt_idx = tf.constant(0, dtype=tf.int32)
+            for gt_img in ground_truth_img:
+                iou = intersection_over_union(detection[3:], gt_img[3:])
+
+                if iou > best_iou.read(0):
+                    best_iou = best_iou.write(0, iou)
+                    best_gt_idx = best_gt_idx.write(0, gt_idx)
+
+                gt_idx += 1
+
+            if best_iou.read(0) > iou_threshold:
+                # Get current detections img_idx
+                cur_det_img_idx = tf.cast(detection[0], dtype=tf.int32)
+
+                # Get row idx of ground_truth_num array
+                gt_row_idx = table.lookup(cur_det_img_idx)
+
+                # Get 'current img ground_truth_num tensor'
+                cur_gt_num_tensor = ground_truth_num.read(gt_row_idx)
+
+                # Get idx of current best ground truth
+                cur_best_gt_idx = best_gt_idx.read(0)
+
+                if cur_gt_num_tensor[cur_best_gt_idx] == 0:
+                    true_positive = true_positive.write(detection_idx, 1)
+
+                    # change cur_gt_num_tensor[cur_best_gt_idx] to 1
+                    cur_gt_num_tensor = change_tensor(cur_gt_num_tensor, cur_best_gt_idx)
+
+                    # update ground_truth_num array
+                    ground_truth_num = ground_truth_num.write(gt_row_idx, cur_gt_num_tensor)
+
+                else:
+                    false_positive = false_positive.write(detection_idx, 1)
+
+            # if IOU is lower then the detection is a false positive
+            else:
+                false_positive = false_positive.write(detection_idx, 1)
+
+            # ground_truth_img.close()
+            best_iou.close()
+            best_gt_idx.close()
+            detection_idx += 1
+
+        # Compute the cumulative sum of the tensor
+        tp_cumsum = tf.math.cumsum(true_positive.stack(), axis=0)
+        fp_cumsum = tf.math.cumsum(false_positive.stack(), axis=0)
+
+        # Calculate recalls and precisions
+        recalls = tf.math.divide(tp_cumsum, (total_true_boxes + epsilon))
+        precisions = tf.math.divide(tp_cumsum, (tp_cumsum + fp_cumsum + epsilon))
+
+        # Append start point value of precision-recall graph
+        precisions = tf.concat([tf.constant([1], dtype=tf.float32), precisions], axis=0)
+        recalls = tf.concat([tf.constant([0], dtype=tf.float32), recalls], axis=0)
+        # tf.print(precisions)
+        # tf.print(recalls)
+
+        # Calculate area of precision-recall graph
+        average_precision_value = tf.py_function(func=np.trapz,
+                                                 inp=[precisions, recalls],
+                                                 Tout=tf.float32)
+        average_precisions = average_precisions.write(average_precisions.size(), average_precision_value)
+        # tf.print('average precision: ', average_precision_value)
+
+        ground_truth_num.close()
+        true_positive.close()
+        false_positive.close()
+
+    # tf.print(average_precisions.stack())
+    # tf.print('mAP: ', tf.math.reduce_mean(average_precisions.stack()))
+    return tf.math.reduce_mean(average_precisions.stack())
+
+
+class MeanAveragePrecision:
+    def __init__(self, num_classes, num_boxes=2):
+        self.all_true_boxes_variable = tf.Variable([[-1, -1, -1, -1, -1, -1, -1]], dtype=tf.float32, shape=tf.TensorShape((None, 7)))
+        self.all_pred_boxes_variable = tf.Variable([[-1, -1, -1, -1, -1, -1, -1]], dtype=tf.float32, shape=tf.TensorShape((None, 7)))
+        self.img_idx = tf.Variable([0], dtype=tf.float32)
+        self._num_classes = num_classes
+        self._num_boxes = num_boxes
+
+    def reset_states(self):
+        self.img_idx.assign([0])
+
+    def update_state(self, y_true, y_pred):
+        true_boxes = decode_predictions(y_true, self._num_classes, self._num_boxes)
+        pred_boxes = decode_predictions(y_pred, self._num_classes, self._num_boxes)
+
+        for idx in tf.range(tf.shape(y_true)[0]):
+            pred_nms = non_max_suppression(pred_boxes[idx], iou_threshold=0.5, conf_threshold=0.4)
+            pred_img_idx = tf.zeros([tf.shape(pred_nms)[0], 1], tf.float32) + self.img_idx
+            pred_concat = tf.concat([pred_img_idx, pred_nms], axis=1)
+
+            true_nms = non_max_suppression(true_boxes[idx], iou_threshold=0.5, conf_threshold=0.4)
+            true_img_idx = tf.zeros([tf.shape(true_nms)[0], 1], tf.float32) + self.img_idx
+            true_concat = tf.concat([true_img_idx, true_nms], axis=1)
+
+            if self.img_idx == 0.:
+                self.all_true_boxes_variable.assign(true_concat)
+                self.all_pred_boxes_variable.assign(pred_concat)
+            else:
+                self.all_true_boxes_variable.assign(tf.concat([self.all_true_boxes_variable, true_concat], axis=0))
+                self.all_pred_boxes_variable.assign(tf.concat([self.all_pred_boxes_variable, pred_concat], axis=0))
+
+            self.img_idx.assign_add([1])
+
+    def result(self):
+        # tf.print('all true bboxes: ', tf.shape(self.all_true_boxes_variable)[0])
+        # tf.print('all pred bboxes: ', tf.shape(self.all_pred_boxes_variable)[0])
+        return mean_average_precision(self.all_true_boxes_variable, self.all_pred_boxes_variable, self._num_classes)
 
 
 def get_tagged_img(img, boxes, names_path):
@@ -329,16 +549,18 @@ class YoloV1(keras.Model):
     """A subclassed Keras model implementing the YoloV1 architecture
 
     Attributes:
+      input_shape: input shape of Model
       num_classes: Number of classes in the dataset
       num_boxes: Number of boxes to predict
       backbone: The backbone to build the YoloV1
     """
 
-    def __init__(self, num_classes, num_boxes, backbone):
+    def __init__(self, input_tensor, num_classes, num_boxes, backbone):
         super(YoloV1, self).__init__(name="YoloV1")
+        self.input_tensor = input_tensor
         self.backbone = backbone
         
-        self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_1')
+        self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_1')
         self.conv_2 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_2')
         self.conv_3 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_3')
         self.conv_4 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_4')
@@ -365,8 +587,7 @@ class YoloV1(keras.Model):
         return self.yolo_v1_outputs(x)
     
     def build_graph(self):
-        x = self.backbone.input
-        return keras.Model(inputs=x, outputs=self.call(x))
+        return keras.Model(inputs=self.input_tensor, outputs=self.call(self.input_tensor))
 
 ##################################
 # YOLO v1 Loss Function
@@ -497,6 +718,8 @@ if __name__ == "__main__":
     model_dir = os.path.join(pwd, "yolo_v1_models")
     data_dir = os.path.join(pwd, "data")
     names_path = os.path.join(pwd, "data/test.names")
+    tensorboard_dir = os.path.join(pwd, "tensorboard")
+    
     num_classes = 3
     num_boxes = 2
     batch_size = 1
@@ -520,19 +743,60 @@ if __name__ == "__main__":
         A.Normalize(0, 1)
     ], bbox_params=A.BboxParams(format='yolo', min_visibility=0.1))
 
-    train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=train_transforms)
-    test_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=test_transforms)
+    train_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=test_transforms)
+    # test_generator = YoloV1Generator(data_dir, input_shape, batch_size, num_classes, num_boxes, transforms=test_transforms)
 
     ##################################
     # Initializing and compiling model
-    ##################################
+    ################################## 
+    # class ConvBlock(keras.Model):
+    #     def __init__(self, filters, kernel_size, strides):
+    #         super(ConvBlock, self).__init__(name='ConvBlock')
+    #         self.conv = keras.layers.Conv2D(filters=filters, kernel_size=kernel_size, strides=strides, padding='same', use_bias=False)
+    #         self.batch = keras.layers.BatchNormalization()
+    #         self.relu = keras.layers.ReLU()
+            
+            
+    #     def call(self, inputs, training=False):
+    #         x = self.conv(inputs)
+    #         x = self.batch(x)
+    #         x = self.relu(x)
+    #         return x
+    
+    # class TmpBackbone(keras.Model):
+    #     def __init__(self):
+    #         super(TmpBackbone, self).__init__(name='TmpBackbone')
+    #         self.conv_1 = ConvBlock(64, 3, 1)
+    #         self.conv_2 = ConvBlock(64, 3, 2)
+    #         self.conv_3 = ConvBlock(128, 3, 1)
+    #         self.conv_4 = ConvBlock(128, 3, 2)
+    #         self.conv_5 = ConvBlock(256, 3, 1)
+    #         self.conv_6 = ConvBlock(256, 3, 2)
+    #         self.conv_7 = ConvBlock(512, 3, 1)
+    #         self.conv_8 = ConvBlock(512, 3, 2)
+            
+    #     def call(self, inputs, training=False):
+    #         x = self.conv_1(inputs)
+    #         x = self.conv_2(x)
+    #         x = self.conv_3(x)
+    #         x = self.conv_4(x)
+    #         x = self.conv_5(x)
+    #         x = self.conv_6(x)
+    #         x = self.conv_7(x)
+    #         x = self.conv_8(x)
+    #         return x
+    
+    # backbone = TmpBackbone()
+    
     loss_fn = YoloV1Loss(num_classes, num_boxes)
     optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
 
-    backbone = keras.applications.VGG16(include_top=False, input_shape=(None, None, 3))
+    backbone = keras.applications.VGG16(include_top=False, input_shape=input_shape)
     backbone.trainable = False
-    model = YoloV1(num_classes, num_boxes, backbone)
-    # model.build_graph().summary()
+    
+    tmp_inputs = keras.Input(shape=input_shape, name="inputs")
+    model = YoloV1(tmp_inputs, num_classes, num_boxes, backbone).build_graph()
+    model.summary()
 
     # for layer in model.layers:
         # print(layer, layer.trainable)
@@ -543,47 +807,115 @@ if __name__ == "__main__":
     ##################################
     # Setting up callbacks
     ##################################
+    class LossTensorCallback(keras.callbacks.Callback):
+        def __init__(self, writer, writer_name, monitor):
+            super(LossTensorCallback, self).__init__()
+            self._writer = writer
+            self._writer_name = writer_name
+            self._monitor = monitor
+            
+        def on_epoch_end(self, epoch, logs=None):
+            loss = logs[self._monitor]
+            epoch += 1
+            with self._writer.as_default():
+                tf.summary.scalar(name=self._writer_name, data=loss, step=epoch)
+
+    
+    class MeanAveragePrecisionTensorCallback(keras.callbacks.Callback):
+        def __init__(self, generator, writer, writer_name, num_classes, num_boxes=2, monitor='loss', mode='min'):
+            super(MeanAveragePrecisionTensorCallback, self).__init__()
+            self._generator = generator
+            self._writer = writer
+            self._writer_name = writer_name
+            self._monitor = monitor
+            self._mode = mode
+            self._metric = MeanAveragePrecision(num_classes, num_boxes)
+            
+            if self._mode == 'min':
+                self.monitor_op = np.less
+                self.best = np.Inf
+            elif self._mode == 'max':
+                self.monitor_op = np.greater
+                self.best = -np.Inf
+            
+        def on_epoch_end(self, epoch, logs=None):
+            monitor_value = logs[self._monitor]
+            epoch += 1
+            
+            if self.monitor_op(monitor_value, self.best):
+                print(f'\nEpoch {epoch:05d}: {self._monitor:s} improved from {self.best:0.5f} to {monitor_value:0.5f}, calculate mean average precision')
+                self._calculate_map(epoch=epoch)
+                self.best = monitor_value
+            elif (epoch + 1) % 10 == 0:
+                print(f'\nEpoch {epoch:05d}: calculate mean average precision')
+                self._calculate_map(epoch=epoch)
+    
+        def _calculate_map(self, epoch=None):
+            print('Calculating mean average precision. It takes sometime.')
+            start_time = time.time()
+            for idx in tqdm(range(self._generator.__len__()), desc='updating...'):
+                batch_x, batch_y = self._generator.__getitem__(idx)
+                predictions = self.model(batch_x, training=False)
+                self._metric.update_state(batch_y, predictions)
+
+            map = self._metric.result()
+            print('mAP: {:.4f}, taken_time: {:.4f}\n'.format(map, time.time() - start_time))
+
+            self._metric.reset_states()
+
+            with self._writer.as_default():
+                tf.summary.scalar(name=self._writer_name, data=map, step=epoch)
+                
+                          
+    def lr_schedule(epoch, lr): 
+        if epoch >=0 and epoch < 75 :
+            lr = 0.001 + 0.009 * (float(epoch)/(75.0))
+            
+            epoch += 1
+            print(f'\nEpoch {epoch:05d}: LearningRate: {lr}\n')
+            
+            return lr
+        elif epoch >= 75 and epoch < 105 :
+            lr = 0.001
+            
+            epoch += 1
+            print(f'\nEpoch {epoch:05d}: LearningRate: {lr}\n')
+            
+            return lr
+        else :
+            lr = 0.0001
+            
+            epoch += 1
+            print(f'\nEpoch {epoch:05d}: LearningRate: {lr}\n')
+            
+            return lr
+        
+    
+    train_writer = tf.summary.create_file_writer(tensorboard_dir + '/train')
+    
     callbacks_list = [
-        tf.keras.callbacks.ModelCheckpoint(
+        keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(model_dir, "yolo_v1_best_model"),
             monitor="loss",
             save_best_only=True,
             # save_weights_only=True,
             verbose=1
-        )
+        ),
+        keras.callbacks.LearningRateScheduler(lr_schedule),
+        LossTensorCallback(train_writer, "Loss", "loss"),
+        MeanAveragePrecisionTensorCallback(train_generator, train_writer, "mAP", num_classes, num_boxes, 'loss')
     ]
-
-
+    
+    
     ##################################
     # Training the model
     ##################################
-    # model.fit(
-    #     x=train_generator,
-    #     epochs=epochs,
-    #     verbose=1,
-    #     callbacks=callbacks_list
-    # )
+    model.fit(
+        x=train_generator,
+        epochs=epochs,
+        verbose=1,
+        callbacks=callbacks_list,
+        # validation_data=test_generator
+    )
 
-    ##################################
-    # Evaluating the model
-    ##################################
-    model_path = os.path.join(model_dir, "yolo_v1_best_model")
-    evaluate_model = keras.models.load_model(model_path, compile=False)
-    
-    from utils import MeanAveragePrecision
-    map_metric = MeanAveragePrecision(num_classes, num_boxes)
-    map_metric_np = MeanAveragePrecisionNumpy(num_classes, num_boxes)
-    
-    for idx in range(test_generator.__len__()):
-        batch_x, batch_y = test_generator.__getitem__(idx)
-        
-        predictions = evaluate_model(batch_x, training=False)
-        
-        map_metric.update_state(batch_y, predictions)
-        map_metric_np.update_state(np.array(batch_y, dtype=np.float32), np.array(predictions, dtype=np.float32))
 
-    map = map_metric.result()
-    print(f'mAP: {map:.4f}')
-    
-    map = map_metric_np.result()
-    print(f'mAP: {map:.4f}')

@@ -279,8 +279,7 @@ def decode_predictions_numpy(predictions, num_classes, num_boxes=2):
 
 @tf.function
 def change_tensor(tensor_1d, idx_col):
-    """
-    change the value of a specific column in a tensor to 1
+    """change the value of a specific column in a tensor to 1
 
     Arguments:
         tensor_1d (Tensor): 1D Tensor to change

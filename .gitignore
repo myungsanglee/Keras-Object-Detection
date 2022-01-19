@@ -4,6 +4,7 @@ saved_models/
 tensorboard_logs/
 __pycache__/
 yolo_v1_models/
+tensorboard/
 
 # ignore file
 *.h5
