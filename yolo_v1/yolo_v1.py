@@ -517,16 +517,20 @@ class YoloV1Generator(keras.utils.Sequence):
             h = box[3]
 
             # Start from grid position and calculate x, y
-            loc = [self.grid * cy, self.grid * cx]
-            loc_i = int(loc[0])
-            loc_j = int(loc[1])
-            y = loc[0] - loc_i
-            x = loc[1] - loc_j
+            # loc = [self.grid * cy, self.grid * cx]
+            # loc_i = int(loc[0])
+            # loc_j = int(loc[1])
+            # y = loc[0] - loc_i
+            # x = loc[1] - loc_j
+            grid_x = int(self.grid * cx)
+            grid_y = int(self.grid * cy)
+            x = self.grid * cx - grid_x
+            y = self.grid * cy - grid_y
 
-            if labels_matrix[loc_i, loc_j, self.num_classes] == 0: # confidence
-                labels_matrix[loc_i, loc_j, cls] = 1 # class
-                labels_matrix[loc_i, loc_j, self.num_classes+1:self.num_classes+5] = [x, y, w, h]
-                labels_matrix[loc_i, loc_j, self.num_classes] = 1 # confidence
+            if labels_matrix[grid_y, grid_x, self.num_classes] == 0: # confidence
+                labels_matrix[grid_y, grid_x, cls] = 1 # class
+                labels_matrix[grid_y, grid_x, self.num_classes+1:self.num_classes+5] = [x, y, w, h]
+                labels_matrix[grid_y, grid_x, self.num_classes] = 1 # confidence
 
         return labels_matrix
 
