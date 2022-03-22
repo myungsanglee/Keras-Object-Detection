@@ -11,8 +11,8 @@ def intersection_over_union(boxes1, boxes2):
     """Calculation of intersection-over-union
 
     Arguments:
-        boxes1 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
-        boxes2 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
+        boxes1 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
+        boxes2 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
 
     Returns:
         Tensor: IoU with shape '(batch, S, S, 1) or (batch, num_boxes, 1) or (num_boxes, 1)'
@@ -47,8 +47,8 @@ def intersection_over_union_numpy(boxes1, boxes2):
     """Calculation of intersection-over-union
 
     Arguments:
-        boxes1 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
-        boxes2 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
+        boxes1 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
+        boxes2 (Numpy Array): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
 
     Returns:
         Numpy Array: IoU with shape '(batch, S, S, 1) or (batch, num_boxes, 1) or (num_boxes, 1)'
@@ -81,7 +81,7 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
     """Does Non Max Suppression given bboxes
 
     Arguments:
-        boxes (Tensor): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        boxes (Tensor): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, cx, cy, w, h]
         iou_threshold (float): threshold where predicted boxes is correct
         conf_threshold (float): threshold to remove predicted boxes
 
@@ -118,7 +118,7 @@ def non_max_suppression_numpy(boxes, iou_threshold=0.5, conf_threshold=0.4):
     """Does Non Max Suppression given boxes
 
     Arguments:
-        boxes (Numpy Array): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        boxes (Numpy Array): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, cx, cy, w, h]
         iou_threshold (float): threshold where predicted boxes is correct
         conf_threshold (float): threshold to remove predicted boxes
 
@@ -163,7 +163,7 @@ def decode_predictions(predictions, num_classes, num_boxes=2):
         num_boxes: Number of boxes to predict
 
     Returns:
-        Tensor: boxes after decoding predictions each grid cell with shape '(batch, S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        Tensor: boxes after decoding predictions each grid cell with shape '(batch, S*S, 6)', specified as [class_idx, confidence_score, cx, cy, w, h]
     """
     
     if not tf.is_tensor(predictions):
@@ -231,7 +231,7 @@ def decode_predictions_numpy(predictions, num_classes, num_boxes=2):
         num_boxes: Number of boxes to predict
 
     Returns:
-        Tensor: boxes after decoding predictions each grid cell with shape '(batch, S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        Tensor: boxes after decoding predictions each grid cell with shape '(batch, S*S, 6)', specified as [class_idx, confidence_score, cx, cy, w, h]
     """
 
     # Get class indexes
@@ -305,7 +305,7 @@ def mean_average_precision(true_boxes, pred_boxes, num_classes, iou_threshold=0.
     """Calculates mean average precision
 
     Arguments:
-        true_boxes (Tensor): Tensor of all boxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, x, y, w, h]
+        true_boxes (Tensor): Tensor of all boxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, cx, cy, w, h]
         pred_boxes (Tensor): Similar as true_bboxes
         num_classes (int): number of classes
         iou_threshold (float): threshold where predicted boxes is correct
@@ -500,7 +500,7 @@ def mean_average_precision_numpy(true_boxes, pred_boxes, num_classes, iou_thresh
     """Calculates mean average precision
 
     Arguments:
-        true_boxes (Numpy Array): Numpy Array of all bboxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, x, y, w, h]
+        true_boxes (Numpy Array): Numpy Array of all bboxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, cx, cy, w, h]
         pred_boxes (Numpy Array): Similar as true_boxes
         num_classes (int): number of classes
         iou_threshold (float): threshold where predicted boxes is correct

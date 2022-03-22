@@ -40,8 +40,8 @@ def intersection_over_union(boxes1, boxes2):
     """Calculation of intersection-over-union
 
     Arguments:
-        boxes1 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
-        boxes2 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [x, y, w, h]
+        boxes1 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
+        boxes2 (Tensor): boxes with shape '(batch, S, S, 4) or (batch, num_boxes, 4) or (num_boxes, 4)', specified as [cx, cy, w, h]
 
     Returns:
         Tensor: IoU with shape '(batch, S, S, 1) or (batch, num_boxes, 1) or (num_boxes, 1)'
@@ -76,7 +76,7 @@ def non_max_suppression(boxes, iou_threshold=0.5, conf_threshold=0.4):
     """Does Non Max Suppression given bboxes
 
     Arguments:
-        boxes (Tensor): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, x, y, w, h]
+        boxes (Tensor): All boxes with each grid '(S*S, 6)', specified as [class_idx, confidence_score, cx, cy, w, h]
         iou_threshold (float): threshold where predicted boxes is correct
         conf_threshold (float): threshold to remove predicted boxes
 
@@ -201,7 +201,7 @@ def mean_average_precision(true_boxes, pred_boxes, num_classes, iou_threshold=0.
     """Calculates mean average precision
 
     Arguments:
-        true_boxes (Tensor): Tensor of all boxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, x, y, w, h]
+        true_boxes (Tensor): Tensor of all boxes with all images (None, 7), specified as [img_idx, class_idx, confidence_score, cx, cy, w, h]
         pred_boxes (Tensor): Similar as true_bboxes
         num_classes (int): number of classes
         iou_threshold (float): threshold where predicted boxes is correct
@@ -552,7 +552,7 @@ class YoloV1Generator(keras.utils.Sequence):
 class YoloV1(keras.Model):
     """A subclassed Keras model implementing the YoloV1 architecture
 
-    Attributes:
+    Arguments:
       input_shape: input shape of Model
       num_classes: Number of classes in the dataset
       num_boxes: Number of boxes to predict
@@ -599,7 +599,7 @@ class YoloV1(keras.Model):
 class YoloV1Loss(keras.losses.Loss):
     """YoloV1 Loss Function
 
-    Attributes:
+    Arguments:
       num_classes: Number of classes in the dataset
       num_boxes: Number of boxes to predict
     """
