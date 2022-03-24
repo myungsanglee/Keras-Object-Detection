@@ -214,6 +214,52 @@ def vgg16_yolo_v1(input_shape, output_shape):
 
     return keras.Model(input_tensor, output_tensor)
 
+
+class YoloV1(keras.Model):
+    """A subclassed Keras model implementing the YoloV1 architecture
+
+    Arguments:
+      input_shape: input shape of Model
+      num_classes: Number of classes in the dataset
+      num_boxes: Number of boxes to predict
+      backbone: The backbone to build the YoloV1
+    """
+
+    def __init__(self, input_tensor, num_classes, num_boxes, backbone):
+        super(YoloV1, self).__init__(name="YoloV1")
+        self.input_tensor = input_tensor
+        self.backbone = backbone
+        
+        self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_1')
+        self.conv_2 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_2')
+        self.conv_3 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_3')
+        self.conv_4 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_4')
+        
+        self.flatten = keras.layers.Flatten()
+        
+        self.dense_1 = keras.layers.Dense(units=512, activation='relu', name='dense_1')
+        self.dense_2 = keras.layers.Dense(units=1024, activation='relu', name='dense_2')
+        self.dropout = keras.layers.Dropout(rate=0.5)
+        self.dense_3 = keras.layers.Dense(units=7*7*(num_boxes*5 + num_classes), name='dense_3')
+        self.yolo_v1_outputs = keras.layers.Reshape(target_shape=(7, 7, (num_boxes*5 + num_classes)), name='yolo_v1_outputs')
+
+    def call(self, images, training=False):
+        x = self.backbone(images, training=training)
+        x = self.conv_1(x)
+        x = self.conv_2(x)
+        x = self.conv_3(x)
+        x = self.conv_4(x)
+        x = self.flatten(x)
+        x = self.dense_1(x)
+        x = self.dense_2(x)
+        x = self.dropout(x)
+        x = self.dense_3(x) 
+        return self.yolo_v1_outputs(x)
+    
+    def build_graph(self):
+        return keras.Model(inputs=self.input_tensor, outputs=self.call(self.input_tensor))
+    
+
 if __name__ == "__main__":
     input_shape = (448, 448, 3)
     output_shape = (7, 7, 30)
@@ -232,3 +278,13 @@ if __name__ == "__main__":
     # input_tensor = keras.layers.Input(input_shape)
     # backbone = keras.applications.MobileNetV2(include_top=False, weights='imagenet', input_tensor=input_tensor)
     # backbone.summary()
+    
+    num_classes = 20
+    num_boxes = 2
+    
+    backbone = keras.applications.VGG16(include_top=False, input_shape=input_shape)
+    backbone.trainable = False
+    
+    tmp_inputs = keras.Input(shape=input_shape, name="inputs")
+    model = YoloV1(tmp_inputs, num_classes, num_boxes, backbone).build_graph()
+    model.summary()
