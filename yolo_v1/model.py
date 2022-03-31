@@ -230,31 +230,45 @@ class YoloV1(keras.Model):
         self.input_tensor = input_tensor
         self.backbone = backbone
         
-        self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_1')
-        self.conv_2 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_2')
-        self.conv_3 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_3')
-        self.conv_4 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_4')
+        # self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_1')
+        # self.conv_2 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same', activation='relu', name='conv_2')
+        # self.conv_3 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_3')
+        # self.conv_4 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu', name='conv_4')
         
-        self.flatten = keras.layers.Flatten()
+        # self.flatten = keras.layers.Flatten()
         
-        self.dense_1 = keras.layers.Dense(units=512, activation='relu', name='dense_1')
-        self.dense_2 = keras.layers.Dense(units=1024, activation='relu', name='dense_2')
-        self.dropout = keras.layers.Dropout(rate=0.5)
-        self.dense_3 = keras.layers.Dense(units=7*7*(num_boxes*5 + num_classes), name='dense_3')
-        self.yolo_v1_outputs = keras.layers.Reshape(target_shape=(7, 7, (num_boxes*5 + num_classes)), name='yolo_v1_outputs')
-
+        # self.dense_1 = keras.layers.Dense(units=512, activation='relu', name='dense_1')
+        # self.dense_2 = keras.layers.Dense(units=1024, activation='relu', name='dense_2')
+        # self.dropout = keras.layers.Dropout(rate=0.5)
+        # self.dense_3 = keras.layers.Dense(units=7*7*(num_boxes*5 + num_classes), name='dense_3')
+        
+        # self.yolo_v1_outputs = keras.layers.Reshape(target_shape=(7, 7, (num_boxes*5 + num_classes)), name='yolo_v1_outputs')
+        
+        self.conv_1 = keras.layers.Conv2D(filters=1024, kernel_size=(3, 3), strides=(2, 2), padding='same')
+        self.batchnorm_1 = keras.layers.BatchNormalization()
+        self.relu_1 = keras.layers.ReLU()
+        
+        self.conv_2 = keras.layers.Conv2D(filters=(num_boxes*5 + num_classes), kernel_size=(1, 1), strides=(1, 1))
+        
+    
     def call(self, images, training=False):
         x = self.backbone(images, training=training)
+        
+        # x = self.conv_1(x)
+        # x = self.conv_2(x)
+        # x = self.conv_3(x)
+        # x = self.conv_4(x)
+        # x = self.flatten(x)
+        # x = self.dense_1(x)
+        # x = self.dense_2(x)
+        # x = self.dropout(x)
+        # x = self.dense_3(x) 
+        # return self.yolo_v1_outputs(x)
+        
         x = self.conv_1(x)
-        x = self.conv_2(x)
-        x = self.conv_3(x)
-        x = self.conv_4(x)
-        x = self.flatten(x)
-        x = self.dense_1(x)
-        x = self.dense_2(x)
-        x = self.dropout(x)
-        x = self.dense_3(x) 
-        return self.yolo_v1_outputs(x)
+        x = self.batchnorm_1(x)
+        x = self.relu_1(x)
+        return self.conv_2(x)
     
     def build_graph(self):
         return keras.Model(inputs=self.input_tensor, outputs=self.call(self.input_tensor))
@@ -262,15 +276,15 @@ class YoloV1(keras.Model):
 
 if __name__ == "__main__":
     input_shape = (448, 448, 3)
-    output_shape = (7, 7, 30)
-    model = yolov1(input_shape, output_shape)
+    # output_shape = (7, 7, 30)
+    # model = yolov1(input_shape, output_shape)
     # model = mobilenet_v2_yolo_v1(input_shape, output_shape)
     # model = vgg16_yolo_v1(input_shape, output_shape)
-    model.summary()
+    # model.summary()
     # model.save("test.h5")
 
-    for layer in model.layers:
-        print(layer.trainable)
+    # for layer in model.layers:
+    #     print(layer.trainable)
 
     # new_model = keras.Model(model.input, model.layers[-2].output)
     # new_model.summary()
@@ -284,7 +298,9 @@ if __name__ == "__main__":
     
     backbone = keras.applications.VGG16(include_top=False, input_shape=input_shape)
     backbone.trainable = False
+    backbone.summary()
     
     tmp_inputs = keras.Input(shape=input_shape, name="inputs")
     model = YoloV1(tmp_inputs, num_classes, num_boxes, backbone).build_graph()
     model.summary()
+    

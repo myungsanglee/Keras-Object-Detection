@@ -44,7 +44,7 @@ for i in range(5):
     boxes = inference_model(x_batch, training=False)
     nms_boxes_2 = non_max_suppression(boxes[0])
     print(f"inference_model time: {(time.time()-start_2)*1000:.2f} ms")
-
+    print(nms_boxes_2)
 
 cv_img = cv2.cvtColor(x_batch[0], cv2.COLOR_RGB2BGR)
 img_1 = get_tagged_img(cv_img, nms_boxes_1, names_path)
