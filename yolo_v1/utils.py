@@ -754,12 +754,17 @@ if __name__ == "__main__":
     y_pred = tf.cast(y_pred, tf.float32)
     # print(y_pred)
     
-    decode_pred = decode_predictions(y_true, num_classes, num_boxes)
+    decode_pred = decode_predictions(y_pred, num_classes, num_boxes)
     nms = non_max_suppression(decode_pred[0])
     print(nms)
     
-    decode_pred_np = decode_predictions_numpy(np.array(y_true, np.float32), num_classes, num_boxes)
+    decode_pred_np = decode_predictions_numpy(np.array(y_pred, np.float32), num_classes, num_boxes)
     nms_np = non_max_suppression_numpy(decode_pred_np[0])
     print(nms_np)
     
+    # mAP Test
+    map_metric = MeanAveragePrecision(num_classes, num_boxes)
+    map_metric.update_state(y_true, y_pred)
+    map = map_metric.result()
+    print(map)
     
